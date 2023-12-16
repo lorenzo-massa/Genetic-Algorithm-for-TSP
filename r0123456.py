@@ -19,7 +19,12 @@ class r0123456:
 
         # Your code here.
 
-        TSP = TravelsalesmanProblem(distanceMatrix)
+        TSP = TravelsalesmanProblem(distanceMatrix,
+                                    lambda_=150,
+                                    mu=300, # 2*lambda
+                                    alpha=0.28,
+                                    max_iterations=500)
+        
         population = TSP.initialize()
 
         # Try to improve the initial population with local search
@@ -147,19 +152,15 @@ class TravelsalesmanProblem:
         self,
         adjacency_mat: np.ndarray,
         lambda_: int = 200,
-        mu: int = 200,
-        k: int = 3,
+        mu: int = 400,
         alpha: float = 0.28,
-        sigma_share: float = 0.1,
         max_iterations= 600,
     ) -> None:
         self.adjacency_mat = adjacency_mat
         self.lambda_ = lambda_  # Population size
-        self.mu = mu  # Offspring size
-        self.k = k  # Tournament selection
+        self.mu = mu  # Offspring size (must be the double of lambda)
         self.alpha = alpha  # Mutation probability
         self.max_iterations = max_iterations  # Maximum number of iterations
-        self.sigma_share = sigma_share
         self.MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations / 5
 
     def tourIsValid(self, tour: np.ndarray):
@@ -183,7 +184,7 @@ class TravelsalesmanProblem:
         return sum
     
     """ Initialize the population with random individuals. """
-
+    # DFS parti da 0 e guardo quali sono i nodi che non hanno infinito e ne prendo uno a caso, per ogni nodo
     def initialize(self) -> None:
         # Create a matrix of random individuals
         population = np.zeros((self.lambda_, self.adjacency_mat.shape[0] + 1)) # +1 for the alpha value
@@ -353,30 +354,51 @@ class TravelsalesmanProblem:
             # Add the selected individual to the matrix of selected parents
             selected[ii, :] = population[ri[min], :]
         return selected
+    
+    def pmx (self, parent1, parent2):
+        # Create a child
+        child1 = np.ones(shape = self.adjacency_mat.shape[0])
+        child1 = child1 * -1
+        # select random start and end indices for parent1's subsection
+        start, end = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
+        # copy parent1's subsection into child
+        child1[start:end] = parent1[start:end]
+        # fill the remaining positions in order
+        child1[child1 == -1] = [i for i in parent2[:-1] if i not in child1]
 
+        child2 = np.ones(shape = self.adjacency_mat.shape[0])
+        child2 = child2 * -1
+        # select random start and end indices for parent1's subsection
+        start, end = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
+        # copy parent2's subsection into child
+        child2[start:end] = parent2[start:end]
+        # fill the remaining positions in order
+        child2[child2 == -1] = [i for i in parent1[:-1] if i not in child2]
+
+        # Add the alpha value to the child (average of the parents' alpha values)
+        new_alpha = (parent1[-1] + parent2[-1]) / 2
+
+        # Concatenate the child to the alpha value
+        child1 = np.concatenate((child1, [new_alpha]))
+        child2 = np.concatenate((child2, [new_alpha]))
+
+        return child1, child2
 
     """ Perform crossover"""   
     def crossover(self, selected: np.ndarray):
         # Create a matrix of offspring
         offspring = np.zeros((self.mu, self.adjacency_mat.shape[0] + 1)) # +1 for the alpha value
 
-        for ii, _ in enumerate(offspring):
+        for ii in range(self.lambda_):
+            # Select two random parents
+            ri = sorted([random.randrange(0, self.lambda_), random.randrange(0, self.lambda_)])
 
-            # Create a child
-            child = np.ones(shape = self.adjacency_mat.shape[0])
-            child = child * -1
-            # select random start and end indices for parent1's subsection
-            start, end = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
-            # copy parent1's subsection into child
-            child[start:end] = selected[2 * ii, start:end]
-            # fill the remaining positions in order
-            child[child == -1] = [i for i in selected[2 * ii + 1, :-1] if i not in child]
+            # Perform crossover
+            offspring[ii, :], offspring[ii + self.lambda_, :] = self.pmx(selected[ri[0], :], selected[ri[1], :])
 
-            # Add the alpha value to the child (average of the parents' alpha values)
-            new_alpha = (selected[2 * ii, -1] + selected[2 * ii + 1, -1]) / 2
-            
-            # Concatenate the child to the alpha value
-            offspring[ii, :] = np.concatenate((child, [new_alpha]))
+            # Check if the children are valid
+            if not self.tourIsValid(offspring[ii, :]) or not self.tourIsValid(offspring[ii + self.lambda_, :]):
+                raise ValueError("Duplicate in offspring durin crossover")
 
         return offspring
 
