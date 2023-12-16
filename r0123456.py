@@ -22,13 +22,17 @@ class r0123456:
         TSP = TravelsalesmanProblem(distanceMatrix,
                                     lambda_=150,
                                     mu=300, # 2*lambda
-                                    alpha=0.28,
-                                    max_iterations=500)
+                                    alpha=0.3,
+                                    max_iterations=200)
         
+
+        # Initialize the population
+        start_time = time.time()
         population = TSP.initialize()
+        print("--- Initialization: %s seconds ---" % (time.time() - start_time))
 
         # Try to improve the initial population with local search
-        population = TSP.two_opt(population, 5)
+        #population = TSP.two_opt(population, 5)
         iteration = 0
 
         # Store the progress
@@ -55,25 +59,23 @@ class r0123456:
             # Perform the evolutionary operators
 
             # Selection
-            if iteration < 200:
-                selected = TSP.selection(population,3)
-            else:
-                selected = TSP.selection(population,4)
+            selected = TSP.selection(population,3)
 
             # Crossover
             offspring = TSP.crossover(selected)
+
             joinedPopulation = np.vstack(
                 (TSP.mutation(offspring), TSP.mutation(population))
             )
 
             # Elimination
-            if iteration < 80:
-                 population = TSP.elimination(joinedPopulation)
-            elif iteration >= 80 and iteration < 150:
-                joinedPopulation = TSP.two_opt(joinedPopulation, 3)
-                population = TSP.elimination(joinedPopulation)
-            elif iteration >= 150 and iteration < 200:
+            if iteration < 20:
+                population = TSP.elimination_with_crowding(joinedPopulation)
+            elif iteration >= 20 and iteration < 40:
                 joinedPopulation = TSP.one_opt(joinedPopulation, 3)
+                population = TSP.elimination_with_crowding(joinedPopulation)
+            elif iteration >= 40 and iteration < 60:
+                joinedPopulation = TSP.one_opt(joinedPopulation, 6)
                 population = TSP.elimination_with_crowding(joinedPopulation)
             else:
                 joinedPopulation = TSP.one_opt(joinedPopulation, 9)
@@ -86,6 +88,7 @@ class r0123456:
             previousBestObjective = bestObjective  # Store the previous best objective
 
             bestObjective = np.min(fvals)
+            TSP.bestObj = bestObjective
             bestSolution = population[np.argmin(fvals), :]
 
             # Save progress
@@ -116,7 +119,7 @@ class r0123456:
             if differentBestSolutions >= TSP.MAX_DIFFERENT_BEST_SOLUTIONS:
                 yourConvergenceTestsHere = False
                 print(
-                    "Terminated because of %d different best solutions"
+                    "Terminated because of %d equal best solutions"
                     % differentBestSolutions
                 )
 
@@ -162,6 +165,7 @@ class TravelsalesmanProblem:
         self.alpha = alpha  # Mutation probability
         self.max_iterations = max_iterations  # Maximum number of iterations
         self.MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations / 5
+        self.bestObj = np.inf
 
     def tourIsValid(self, tour: np.ndarray):
         # Check if the tour is valid
@@ -184,27 +188,86 @@ class TravelsalesmanProblem:
         return sum
     
     """ Initialize the population with random individuals. """
-    # DFS parti da 0 e guardo quali sono i nodi che non hanno infinito e ne prendo uno a caso, per ogni nodo
     def initialize(self) -> None:
         # Create a matrix of random individuals
         population = np.zeros((self.lambda_, self.adjacency_mat.shape[0] + 1)) # +1 for the alpha value
-        for i in range(self.lambda_):
-            # Create alpha with gaussian distribution
-            alpha = np.random.normal(self.alpha, 0.15)
-            # Create a random individual and concatenate alpha
-            rIndividual = np.concatenate(([0], np.random.permutation(np.arange(1, self.adjacency_mat.shape[0])), [alpha]))
-            # Evaluate the individual with the objective function
-            obj = self.objf(rIndividual)
-            # Check if the individual is valid
-            while obj == np.inf:
-                # Create a random individual
-                rIndividual = np.concatenate(([0], np.random.permutation(np.arange(1, self.adjacency_mat.shape[0])), [alpha]))
-                # Evaluate the individual with the objective function
-                obj = self.objf(rIndividual)
 
-            population[i, :] = rIndividual
+        # Create alpha with gaussian distribution
+        alpha = np.random.normal(self.alpha, 0.05)
+        # Create the first individual with greedy heuristic
+        population[0, :] = np.concatenate((self.generate_individual_greedy(), [alpha]))
+
+        for i in range(1, self.lambda_):
+            
+            # Create an individual
+            if i < self.lambda_/20:
+                new_individual = self.generate_individual_nearest_neighbor()
+            else:
+                new_individual = self.generate_individual_random()
+
+            
+            # Evaluate the individual with the objective function
+            obj = self.objf(new_individual)
+            # Check if the individual is valid for at most 100 times
+            max_tries = self.adjacency_mat.shape[0]/5
+            while obj == np.inf and max_tries > 0:
+                # Create a random individual
+                new_individual = self.generate_individual_random()
+                # Evaluate the individual with the objective function
+                obj = self.objf(new_individual)
+                max_tries -= 1
+
+
+            # Create alpha with gaussian distribution
+            alpha = np.random.normal(self.alpha, 0.05)
+            # Concatenate the alpha value to the individual
+            new_individual = np.concatenate((new_individual, [alpha]))
+
+            population[i, :] = new_individual
 
         return population
+    
+    def generate_individual_greedy(self):
+        # Create an individual choosing always the nearest city
+        individual = np.zeros(self.adjacency_mat.shape[0]).astype(int)
+        individual[0] = 0
+
+        not_visited = np.arange(1, self.adjacency_mat.shape[0])
+
+        for ii in range(1, self.adjacency_mat.shape[0]):
+            # Select the nearest city
+            nearest_city = np.argmin(self.adjacency_mat[individual[ii - 1].astype(int), not_visited])
+            # Add the nearest city to the individual
+            individual[ii] = not_visited[nearest_city]
+            # Remove the nearest city from the not visited list
+            not_visited = np.delete(not_visited, nearest_city)
+
+        return individual
+    
+    def generate_individual_nearest_neighbor(self):
+        # Create an individual choosing always the nearest city , second city is random
+        individual = np.zeros(self.adjacency_mat.shape[0]).astype(int)
+        individual[0] = 0
+        individual[1] = np.random.randint(1, self.adjacency_mat.shape[0]) # Second city is random
+
+        not_visited = np.arange(1, self.adjacency_mat.shape[0])
+        not_visited = np.delete(not_visited, np.where(not_visited == individual[1]))
+
+        for ii in range(2, self.adjacency_mat.shape[0]):
+            # Select the nearest city
+            nearest_city = np.argmin(self.adjacency_mat[individual[ii - 1].astype(int), not_visited])
+            # Add the nearest city to the individual
+            individual[ii] = not_visited[nearest_city]
+            # Remove the nearest city from the not visited list
+            not_visited = np.delete(not_visited, nearest_city)
+
+        return individual
+    
+
+    def generate_individual_random(self):
+        return np.concatenate(([0], np.random.permutation(np.arange(1, self.adjacency_mat.shape[0])).astype(int)))
+
+
 
     def one_opt(self, population: np.ndarray, k):
 
@@ -219,19 +282,10 @@ class TravelsalesmanProblem:
             best_tour = population[i, :]
             best_obj = self.objf(best_tour)
 
-            ri_list = []
+            # Select k random indices
+            k_list = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k))
 
-            for j in range(k):
-                # Select a random index
-                ri = random.randrange(1, self.adjacency_mat.shape[0]-1)
-
-                # Check if the index is already selected
-                while ri in ri_list:
-                    ri = random.randrange(1, self.adjacency_mat.shape[0]-1)
-                
-                ri_list.append(ri)
-
-
+            for ri in k_list:
                 # Swap the ri-th and ri+1-th cities
                 tour = population[i, :].copy()
                 tour[ri], tour[ri+1] = tour[ri+1], tour[ri]
@@ -244,17 +298,10 @@ class TravelsalesmanProblem:
                     best_tour = tour
                     best_obj = new_obj
 
-
-            # Check if the best tour is different from the original one
-            if not np.array_equal(best_tour, population[i, :]):
-                modified += 1
-                population[i, :] = best_tour
+            population[i, :] = best_tour
 
         return population
     
-    
-    
-
     def two_opt(self, population: np.ndarray, k):
 
         if k < 1 or k > self.adjacency_mat.shape[0] - 1:
@@ -297,11 +344,7 @@ class TravelsalesmanProblem:
 
         return population
     
-
-    def one_opt_mining(self, population: np.ndarray, k):
-
-        if k < 1 or k > self.adjacency_mat.shape[0] - 1:
-            raise ValueError("k must be between 2 and n-1")
+    def one_opt_mining(self, population: np.ndarray):
 
         for i in range(population.shape[0]):
 
@@ -341,23 +384,24 @@ class TravelsalesmanProblem:
     def selection(self, population: np.ndarray, k: int = 3):
 
         # Create a matrix of selected parents
-        selected = np.zeros((self.mu * 2, self.adjacency_mat.shape[0] + 1)) # +1 for the alpha value
+        selected = np.zeros((self.mu, self.adjacency_mat.shape[0] + 1))  # +1 for the alpha value
+        selected[:,:-1] = selected[:,:-1].astype(int)
 
         # Selecting the parents
-        for ii in range(self.mu * 2):
+        for ii in range(self.mu):
             # Select k random individuals from the population
             ri = random.sample(range(population.shape[0]), k)
 
             # Select the best individual from the k random individuals
-            min = np.argmin(np.apply_along_axis(self.objf, 1, population[ri, :]))
+            best = np.argmin(np.apply_along_axis(self.objf, 1, population[ri, :]))
 
             # Add the selected individual to the matrix of selected parents
-            selected[ii, :] = population[ri[min], :]
+            selected[ii, :] = population[ri[best], :]
         return selected
     
-    def pmx (self, parent1, parent2):
+    def pmx(self, parent1, parent2):
         # Create a child
-        child1 = np.ones(shape = self.adjacency_mat.shape[0])
+        child1 = np.ones(shape = self.adjacency_mat.shape[0]).astype(int)
         child1 = child1 * -1
         # select random start and end indices for parent1's subsection
         start, end = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
@@ -366,10 +410,9 @@ class TravelsalesmanProblem:
         # fill the remaining positions in order
         child1[child1 == -1] = [i for i in parent2[:-1] if i not in child1]
 
-        child2 = np.ones(shape = self.adjacency_mat.shape[0])
+        child2 = np.ones(shape = self.adjacency_mat.shape[0]).astype(int)
         child2 = child2 * -1
-        # select random start and end indices for parent1's subsection
-        start, end = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
+        # use the same random start and end indices for parent2's subsection
         # copy parent2's subsection into child
         child2[start:end] = parent2[start:end]
         # fill the remaining positions in order
@@ -388,100 +431,58 @@ class TravelsalesmanProblem:
     def crossover(self, selected: np.ndarray):
         # Create a matrix of offspring
         offspring = np.zeros((self.mu, self.adjacency_mat.shape[0] + 1)) # +1 for the alpha value
+        offspring[:,:-1] = offspring[:,:-1].astype(int)
 
         for ii in range(self.lambda_):
             # Select two random parents
-            ri = sorted([random.randrange(0, self.lambda_), random.randrange(0, self.lambda_)])
+            ri = sorted(random.sample(range(1, self.lambda_), k = 2))
 
             # Perform crossover
             offspring[ii, :], offspring[ii + self.lambda_, :] = self.pmx(selected[ri[0], :], selected[ri[1], :])
 
-            # Check if the children are valid
-            if not self.tourIsValid(offspring[ii, :]) or not self.tourIsValid(offspring[ii + self.lambda_, :]):
-                raise ValueError("Duplicate in offspring durin crossover")
-
         return offspring
 
-    def swap_mutation(self, offspring,ii):
-        # Two positions (genes) in the chromosome are selected at
-        # random and their allele values swapped
-
+    def swap_mutation(self, tour):
         # Select two random indices
-        ri = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
+        ri = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k = 2))
 
         # Swap the cities
-        offspring[ii, ri[0]], offspring[ii, ri[1]] = (
-            offspring[ii, ri[1]],
-            offspring[ii, ri[0]],
-        )
+        tour[ri[0]], tour[ri[1]] = tour[ri[1]], tour[ri[0]]
 
-        # Check if the offspring has duplicates
-        if len(np.unique(offspring[ii, :-1])) != self.adjacency_mat.shape[0]:
-            print("offspring: ", offspring[ii, :]," after")
-            print("Duplicate in offspring durin swap mutation")
+        return tour
         
 
-    def insert_mutation(self,offspring,ii):
-        # Two alleles are selected at random and the second moved
-        # next to the first, shuffling along the others to make room
-
+    def insert_mutation(self,tour):
         # Select two random indices sorted, they must be different
-        ri = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
+        ri = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k = 2))
 
-        if ri[0] == ri[1]:
-            if ri[0] == 0:
-                ri[1] += 1
-            elif ri[0] == self.adjacency_mat.shape[0]-1:
-                ri[0] -= 1
-            else:
-                ri[0] -= 1
+        np.delete(tour, ri[0])
+        np.insert(tour, ri[1], tour[ri[0]])
 
-        # Shift the cities from the first index to the second index
-        app = offspring[ii, ri[1]-1]
-        offspring[ii, ri[0] + 1 : ri[1]] = offspring[ii, ri[0] : ri[1] - 1]
-
-        # Insert the city at the first index at the second index
-        offspring[ii, ri[0]] = app
-
-        # Check if the offspring has duplicates
-        if len(np.unique(offspring[ii, :-1])) != self.adjacency_mat.shape[0]:
-            print("offspring: ", offspring[ii, :]," after")
-            print("Duplicate in offspring durin insert mutation")
+        return tour
 
 
-    def scramble_mutation(self,offspring,ii):
-        # a randomly chosen subset of values 
-        # are chosen and their order randomly shuffled
-
+    def scramble_mutation(self,tour):
         # Select two random indices sorted
-        ri = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
+        ri = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k = 2))
 
-        # Shuffle the cities
-        np.random.shuffle(offspring[ii, ri[0]:ri[1]])
+        # Shuffle the cities between the two indices
+        np.random.shuffle(tour[ri[0]:ri[1]])
 
-        # Check if the offspring has duplicates
-        if len(np.unique(offspring[ii, :-1])) != self.adjacency_mat.shape[0]:
-            print("offspring: ", offspring[ii, :]," after")
-            print("Duplicate in offspring durin scramble mutation")
+        return tour
 
 
-    def inversion_mutation(self,offspring,ii):
-        # Randomly select two positions in the chromosome and
-        # reverse the order in which the values appear between those positions
-
+    def inversion_mutation(self,tour):
         # Select two random indices sorted
-        ri = sorted([random.randrange(1, self.adjacency_mat.shape[0]), random.randrange(1, self.adjacency_mat.shape[0])])
+        ri = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k = 2))
 
         # Invert the cities
-        offspring[ii, ri[0]:ri[1]] = offspring[ii, ri[0]:ri[1]][::-1]
+        tour[ri[0]:ri[1]] = tour[ri[0]:ri[1]][::-1]
 
-        # Check if the offspring has duplicates
-        if len(np.unique(offspring[ii, :-1])) != self.adjacency_mat.shape[0]:
-            print("offspring: ", offspring[ii, :]," after")
-            print("Duplicate in offspring durin inversion mutation")
+        return tour
 
     def swap_longest_links_mutation(self, individual: np.ndarray):
-        # Select the longest links in the individual and swap them
+        # Select the two longest links in the individual and swap them
 
         individual = individual.astype(int)
         # Calculate the distance between each city
@@ -498,24 +499,21 @@ class TravelsalesmanProblem:
             individual[longest_links[0]],
         )
 
-        if len(np.unique(individual[:-1])) != self.adjacency_mat.shape[0]:
-            print("Duplicate in offspring durin swap longest links mutation")
-
         return individual
 
     def adapt_alpha(self, individual: np.ndarray):
         # Calculate success rate based on the objective function value
-        success_rate = (1.0 / (np.sqrt(self.objf(individual)) + 1)) * self.adjacency_mat.shape[0]
+        success_rate = self.objf(individual) / self.bestObj
 
 
         # Update alpha using a simple evolutionary strategy
-        if success_rate > 0.85:
+        if success_rate > 0.9:
             individual[self.adjacency_mat.shape[0]] *= 0.9
-        elif success_rate < 0.4:
+        elif success_rate < 0.5:
             individual[self.adjacency_mat.shape[0]] *= 1.1
 
         # Ensure alpha stays within a reasonable range (0 to 1)
-        individual[self.adjacency_mat.shape[0]] = max(0.01, min(0.99, individual[self.adjacency_mat.shape[0]]))
+        individual[self.adjacency_mat.shape[0]] = max(0.27, min(0.99, individual[self.adjacency_mat.shape[0]]))
 
 
     """ Perform mutation on the offspring."""
@@ -525,7 +523,7 @@ class TravelsalesmanProblem:
         # Apply the mutation to each row of the offspring array
         for ii, _ in enumerate(offspring):
             # Update alpha based on the success of the individual
-            self.adapt_alpha(offspring[ii, :])
+            #self.adapt_alpha(offspring[ii, :])
 
             # Apply the mutation with probability alpha of the individual
             if np.random.rand() < offspring[ii, self.adjacency_mat.shape[0]]:
@@ -534,18 +532,11 @@ class TravelsalesmanProblem:
                 offspring[ii, -1] = np.random.normal(self.alpha, 0.02)
                             
                 # Randomly select a mutation operator with different probabilities
-                mutation_operator = np.random.choice(np.arange(0,5), 1, p=[0.55, 0.04, 0.03, 0.03, 0.35])
-
-                if mutation_operator == 0:
-                    self.inversion_mutation(offspring,ii)
-                elif mutation_operator == 1:
-                    self.swap_longest_links_mutation(offspring[ii, :])
-                elif mutation_operator == 2:
-                    self.scramble_mutation(offspring,ii)
-                elif mutation_operator == 3:
-                    self.insert_mutation(offspring,ii)
-                else:
-                    self.swap_mutation(offspring,ii)
+                mutation_operator = random.choices([self.inversion_mutation,self.swap_mutation,
+                    self.scramble_mutation,self.insert_mutation], weights=[9, 4, 1, 1], k=1)[0]
+                
+                
+                offspring[ii, :] = mutation_operator(offspring[ii, :])
 
         return offspring
 
@@ -567,7 +558,7 @@ class TravelsalesmanProblem:
         fvals = np.apply_along_axis(self.objf, 1, joinedPopulation)
 
         # Calculate the crowding distance for each individual
-        crowding_distances = self.calculate_crowding_distances(joinedPopulation, fvals)
+        crowding_distances = self.crowding_distances(joinedPopulation, fvals)
 
         # Sort the individuals based on the objective function value and crowding distance
         sorted_indices = np.lexsort((crowding_distances, fvals))
@@ -578,7 +569,7 @@ class TravelsalesmanProblem:
 
         return survivors
 
-    def calculate_crowding_distances(self, population: np.ndarray, fvals: np.ndarray):
+    def crowding_distances(self, population: np.ndarray, fvals: np.ndarray):
         num_individuals, _ = population.shape
         crowding_distances = np.zeros(num_individuals)
 
@@ -604,14 +595,14 @@ class TravelsalesmanProblem:
 if __name__ == "__main__":
     # Calculate the time
     start_time = time.time()
-    r0123456().optimize("tour200.csv")
+    r0123456().optimize("tour500.csv")
     print("--- %s seconds ---" % (time.time() - start_time))
 
 
 # Benchmark results to beat:
-# tour50: simple greedy heuristic 27723
-# tour100: simple greedy heuristic 90851
-# tour200: simple greedy heuristic 39745 (BEST 52k) [std,two_opt,one_opt] [alpha=adapt, sigma_share=0.1, k=3, lambda=200, mu=200]
-# tour500: simple greedy heuristic 157034
+# tour50: simple greedy heuristic 27723     (TARGET 24k)    (BEST 26k)
+# tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 81k)
+# tour200: simple greedy heuristic 39745    (TARGET 35k)    (BEST 40k)
+# tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 155k)
 # tour750: simple greedy heuristic 197541
 # tour1000: simple greedy heuristic 195848
