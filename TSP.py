@@ -21,7 +21,7 @@ class TSP:
         self.lambdaa = 1000                         # Population size
         self.mu = self.lambdaa * 2                  # Offspring size        WHY THE DOUBLE (COULD BE THE HALF?)
         self.k = 3                                  # Tournament selection
-        self.numIters = 90                          # Maximum number of iterations
+        self.numIters = 500                         # Maximum number of iterations
         self.objf = fitness                         # Objective function
 
         self.distanceMatrix = read_from_file(filename)
@@ -120,8 +120,6 @@ class TSP:
             offspring[p] = child
         return offspring
 
-
-    """ Perform mutation, adding a random Gaussian perturbation. """
     def mutation(self, offspring, alpha):
         i = np.where(np.random.rand(np.size(offspring, 0)) <= alpha)[0]
         np.random.shuffle(offspring[i,:])
@@ -137,18 +135,18 @@ class TSP:
         return offspring
 
     def mutation_swap(self, path):
-        cp1, cp2 = sorted(random.sample(range(self.numCities - 1), 2))  # Random indexes
+        cp1, cp2 = sorted(random.sample(range(self.numCities - 1), 2)) 
         path[cp1], path[cp2] = path[cp2], path[cp1]
         return path
 
     def mutation_insert(self, path):
-        cp1, cp2 = sorted(random.sample(range(self.numCities - 1), 2))  # Random indexes
+        cp1, cp2 = sorted(random.sample(range(self.numCities - 1), 2))  
         np.delete(path, cp1)
         np.insert(path, cp2, path[cp1])
         return path
 
     def mutation_scramble(self, path):
-        cp1, cp2 = sorted(random.sample(range(self.numCities - 1), 2))  # Random indexes
+        cp1, cp2 = sorted(random.sample(range(self.numCities - 1), 2)) 
         subpath = path[cp1:cp2 + 1]
         random.shuffle(subpath)
         path[cp1:cp2 + 1] = subpath
@@ -158,9 +156,7 @@ class TSP:
         cp1, cp2 = sorted(random.sample(range(self.numCities - 1), 2))
         path[cp1:cp2 + 1] = path[cp1:cp2 + 1][::-1]
         return path
-
-
-    """ Eliminate the unfit candidate solutions. """
+    
     # TODO consider age-based elimination
     def elimination(self, population, lambdaa):
         fvals = pop_fitness(population, self.distanceMatrix)
@@ -194,36 +190,43 @@ class TSP:
         # in case it got to a dead end, rerun
         return self.random_cycle()
 
+""" Compute the objective function of a population of individuals"""
 def pop_fitness(population, distanceMatrix):
     return np.array([fitness(path, distanceMatrix) for path in population])
 
 """ Compute the objective function of a candidate"""
 def fitness(path, distanceMatrix):
     sum = distanceMatrix[0, path[0]] + distanceMatrix[path[len(path) - 1]][0]
-    for i in range(len(path)-2):
+    for i in range(len(path)-1):
         sum += distanceMatrix[path[i]][path[i + 1]]
     return sum
 
-def plot_graph(mean, best):
-    plt.plot(mean, label='Mean fitness')
-    plt.title('Mean fitness convergence')
-    plt.xlabel('Iterations')
-    plt.ylabel('mean fitness')
+# def plot_graph(mean, best):
+#     plt.plot(mean, label='Mean fitness')
+#     plt.title('Mean fitness convergence')
+#     plt.xlabel('Iterations')
+#     plt.ylabel('mean fitness')
 
-    plt.plot(best, label='Best fitness')
-    plt.title('Best fitness convergence')
-    plt.xlabel('Iterations')
-    plt.ylabel('best fitness')
-    plt.legend()
-    plt.show()
+#     plt.plot(best, label='Best fitness')
+#     plt.title('Best fitness convergence')
+#     plt.xlabel('Iterations')
+#     plt.ylabel('best fitness')
+#     plt.legend()
+#     plt.show()
 
 # --------------------------------------------------------- #
 
-tsp = TSP(fitness, "../data/tour50.csv")
+tsp = TSP(fitness, "tour50.csv")
 mean, best, it = tsp.optimize()
-plot_graph(mean, best)
+# plot_graph(mean, best)
 
-
+# Here: 
+# tour50: simple greedy heuristic 28772 
+# tour100: simple greedy heuristic 83947
+# tour200: simple greedy heuristic 
+# tour500: simple greedy heuristic 
+# tour750: simple greedy heuristic 
+# tour1000: simple greedy heuristic 
 
 
 
