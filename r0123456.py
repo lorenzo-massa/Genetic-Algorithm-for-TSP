@@ -3,6 +3,10 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 import time
+from numba import njit
+
+file = "tour500.csv"
+distanceMatrix = np.loadtxt(file, delimiter=",")
 
 
 # Modify the class name to match your student number.
@@ -14,7 +18,6 @@ class r0123456:
     def optimize(self, filename):
         # Read distance matrix from file.
         file = open(filename)
-        distanceMatrix = np.loadtxt(file, delimiter=",")
         file.close()
 
         # Your code here.
@@ -23,7 +26,7 @@ class r0123456:
                                     lambda_=150,
                                     mu=300, # 2*lambda
                                     alpha=0.3,
-                                    max_iterations=200)
+                                    max_iterations=100)
         
 
         # Initialize the population
@@ -188,6 +191,7 @@ class TravelsalesmanProblem:
         return sum
     
     """ Initialize the population with random individuals. """
+
     def initialize(self) -> None:
         # Create a matrix of random individuals
         population = np.zeros((self.lambda_, self.adjacency_mat.shape[0] + 1)) # +1 for the alpha value
@@ -263,15 +267,11 @@ class TravelsalesmanProblem:
 
         return individual
     
-
     def generate_individual_random(self):
         return np.concatenate(([0], np.random.permutation(np.arange(1, self.adjacency_mat.shape[0])).astype(int)))
 
 
-
     def one_opt(self, population: np.ndarray, k):
-
-        modified = 0
 
         if k < 1 or k > population.shape[0] - 1:
             raise ValueError("k must be between 2 and n-1")
@@ -301,6 +301,7 @@ class TravelsalesmanProblem:
             population[i, :] = best_tour
 
         return population
+    
     
     def two_opt(self, population: np.ndarray, k):
 
@@ -344,6 +345,7 @@ class TravelsalesmanProblem:
 
         return population
     
+
     def one_opt_mining(self, population: np.ndarray):
 
         for i in range(population.shape[0]):
@@ -381,6 +383,7 @@ class TravelsalesmanProblem:
         return population
 
     """ Perform k-tournament selection WITHOUT REPLACEMNT to select pairs of parents. """
+    
     def selection(self, population: np.ndarray, k: int = 3):
 
         # Create a matrix of selected parents
@@ -398,6 +401,7 @@ class TravelsalesmanProblem:
             # Add the selected individual to the matrix of selected parents
             selected[ii, :] = population[ri[best], :]
         return selected
+    
     
     def pmx(self, parent1, parent2):
         # Create a child
@@ -427,7 +431,8 @@ class TravelsalesmanProblem:
 
         return child1, child2
 
-    """ Perform crossover"""   
+    """ Perform crossover""" 
+     
     def crossover(self, selected: np.ndarray):
         # Create a matrix of offspring
         offspring = np.zeros((self.mu, self.adjacency_mat.shape[0] + 1)) # +1 for the alpha value
@@ -442,6 +447,7 @@ class TravelsalesmanProblem:
 
         return offspring
 
+    
     def swap_mutation(self, tour):
         # Select two random indices
         ri = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k = 2))
@@ -451,7 +457,7 @@ class TravelsalesmanProblem:
 
         return tour
         
-
+    
     def insert_mutation(self,tour):
         # Select two random indices sorted, they must be different
         ri = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k = 2))
@@ -461,7 +467,7 @@ class TravelsalesmanProblem:
 
         return tour
 
-
+    
     def scramble_mutation(self,tour):
         # Select two random indices sorted
         ri = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k = 2))
@@ -471,7 +477,7 @@ class TravelsalesmanProblem:
 
         return tour
 
-
+    
     def inversion_mutation(self,tour):
         # Select two random indices sorted
         ri = sorted(random.sample(range(1, self.adjacency_mat.shape[0]), k = 2))
@@ -481,6 +487,7 @@ class TravelsalesmanProblem:
 
         return tour
 
+    
     def swap_longest_links_mutation(self, individual: np.ndarray):
         # Select the two longest links in the individual and swap them
 
@@ -518,6 +525,7 @@ class TravelsalesmanProblem:
 
     """ Perform mutation on the offspring."""
 
+    
     def mutation(self, offspring: np.ndarray):
 
         # Apply the mutation to each row of the offspring array
@@ -542,6 +550,7 @@ class TravelsalesmanProblem:
 
     """ Eliminate the unfit candidate solutions. """
 
+    
     def elimination(self, joinedPopulation: np.ndarray):
         # Apply the objective function to each row of the joinedPopulation array
         fvals = np.apply_along_axis(self.objf, 1, joinedPopulation)
@@ -552,7 +561,7 @@ class TravelsalesmanProblem:
 
         return survivors
 
-        
+    
     def elimination_with_crowding(self, joinedPopulation: np.ndarray):
         # Apply the objective function to each row of the joinedPopulation array
         fvals = np.apply_along_axis(self.objf, 1, joinedPopulation)
@@ -569,6 +578,7 @@ class TravelsalesmanProblem:
 
         return survivors
 
+    
     def crowding_distances(self, population: np.ndarray, fvals: np.ndarray):
         num_individuals, _ = population.shape
         crowding_distances = np.zeros(num_individuals)
@@ -595,7 +605,7 @@ class TravelsalesmanProblem:
 if __name__ == "__main__":
     # Calculate the time
     start_time = time.time()
-    r0123456().optimize("tour500.csv")
+    r0123456().optimize(file)
     print("--- %s seconds ---" % (time.time() - start_time))
 
 
