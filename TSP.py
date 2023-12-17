@@ -19,10 +19,11 @@ class TSP:
         self.alpha = 0.23                           # Mutation probability
         self.mutationratios = [7, 1, 1, 15]         # swap, insert, scramble, inversion -> mutation ratio
         self.lambdaa = 1000                         # Population size
-        self.mu = self.lambdaa * 2                  # Offspring size        WHY THE DOUBLE (COULD BE THE HALF?)
+        self.mu = self.lambdaa * 2                  # Offspring size       
         self.k = 3                                  # Tournament selection
         self.numIters = 500                         # Maximum number of iterations
         self.objf = fitness                         # Objective function
+        self.maxSameBestSol = 10
 
         self.distanceMatrix = read_from_file(filename)
         self.numCities = self.distanceMatrix.shape[0]         # Boundary of the domain, not to be changed
@@ -40,9 +41,17 @@ class TSP:
         i=0
         mean = []
         best = []
-        while ((time.time() - startTotTime) < self.maxTime) and (i<=self.numIters):
-            start = time.time()
+        bestSolutions = []
+        
+        # Termination criteria
+        previousBestFitness = 0
+        countSameBestSol = 0
+        bestFitness = 0.0
+        bestSolution = np.zeros(self.numCities - 1)
 
+        terminationCriteria = True    
+        while terminationCriteria:
+            start = time.time()
             startselection = time.time()
             selected = self.selection(self.population, self.k)                          # selected = initial*2
             selectiontime = time.time() - startselection
@@ -61,11 +70,32 @@ class TSP:
 
             itT = time.time() - start
             fvals = pop_fitness(self.population, self.distanceMatrix)
+
+            # Save progress
+            previousBestFitness = bestFitness
+            bestFitness = np.min(fvals)
+            bestSolution = self.population[np.argmin(fvals), :]
+            bestSolutions.append(bestSolution)
             mean.append(np.mean(fvals))
             best.append(np.min(fvals))
-            print(f'{i}) {itT: .2f}s:\t Mean fitness = {mean[i]: .5f} \t Best fitness = {best[i]: .5f}\t pop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s')
+
+            print(f'{i}) {itT: .2f}s:\t Mean fitness = {mean[i]: .5f} \t Best fitness = {best[i]: .5f} \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
             i=i+1
-        print('Done')
+
+            # Termination criteria 1: number of iterations
+            ((time.time() - startTotTime) < self.maxTime) and (i<=self.numIters)
+            if i >= self.numIters:
+                terminationCriteria = False
+            # Termination criteria 2: bestFitness doesn't improve for 'maxSameBestSol' times
+            if bestFitness == previousBestFitness and bestFitness != np.inf:
+                countSameBestSol += 1
+            else:
+                countSameBestSol = 0
+            if countSameBestSol >= self.maxSameBestSol:
+                terminationCriteria = False
+                print("Terminated because of %d same best solutions"%countSameBestSol)
+
+        print('Doneeee')
         totTime = time.time() - startTotTime
         print(f'Tot time: {totTime: .2f}s')
         return mean, best, i-1
@@ -216,15 +246,15 @@ def fitness(path, distanceMatrix):
 
 # --------------------------------------------------------- #
 
-tsp = TSP(fitness, "tour50.csv")
+tsp = TSP(fitness, "tour750.csv")
 mean, best, it = tsp.optimize()
 # plot_graph(mean, best)
 
 # Here: 
 # tour50: simple greedy heuristic 28772 
 # tour100: simple greedy heuristic 83947
-# tour200: simple greedy heuristic 
-# tour500: simple greedy heuristic 
+# tour200: simple greedy heuristic 66080
+# tour500: simple greedy heuristic 1404427
 # tour750: simple greedy heuristic 
 # tour1000: simple greedy heuristic 
 
