@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 import time
 from numba import njit
 
-file = "tour500.csv"
+file = "tour750.csv"
 distanceMatrix = np.loadtxt(file, delimiter=",")
 
-lambda_=400
+lambda_=300
 mu=lambda_*2
 my_alpha=0.25
 max_iterations=1000
@@ -72,15 +72,15 @@ class r0123456:
             # Crossover
             offspring = crossover(selected)
 
-            joinedPopulation = np.vstack((mutation(offspring), mutation(population)))
+            joinedPopulation = np.vstack((population, mutation(offspring)))
 
             # Elimination
-            if iteration < 100:
+            if iteration < 80:
                 population = elimination(joinedPopulation)
-            elif iteration >= 100 and iteration < 200:
+            elif iteration >= 80 and iteration < 180:
                 joinedPopulation = one_opt(joinedPopulation, 3)
                 population = elimination(joinedPopulation)
-            elif iteration >= 200 and iteration < 300:
+            elif iteration >= 180 and iteration < 300:
                 joinedPopulation = one_opt(joinedPopulation, 5)
                 population = elimination(joinedPopulation)
             else:
@@ -253,8 +253,8 @@ def initialize() -> np.ndarray:
 
     for i in range(lambda_):
 
-        #if i < lambda_*0.02:
-        #    new_individual = generate_individual_greedy()
+        if i < lambda_*0.02:
+            new_individual = generate_individual_greedy()
         if i >= lambda_*0.02 and i < lambda_*0.05:
             new_individual = generate_individual_nearest_neighbor()
         else:
@@ -614,5 +614,5 @@ if __name__ == "__main__":
 # tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 81k)
 # tour200: simple greedy heuristic 39745    (TARGET 35k)    (BEST 38k)
 # tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 155k)
-# tour750: simple greedy heuristic 197541
-# tour1000: simple greedy heuristic 195848
+# tour750: simple greedy heuristic 197541  (TARGET 177k)   (BEST 203k)
+# tour1000: simple greedy heuristic 195848 (TARGET 176k)   (BEST 205k)
