@@ -18,23 +18,45 @@ class TSP:
     def __init__(self, fitness, filename):
         self.alpha = 0.23                           # Mutation probability
         self.mutationratios = [7, 1, 1, 15]         # swap, insert, scramble, inversion -> mutation ratio
-        self.lambdaa = 1000                         # Population size
+        self.lambdaa = 150                          # Population size
         self.mu = self.lambdaa * 2                  # Offspring size       
         self.k = 3                                  # Tournament selection
-        self.numIters = 500                         # Maximum number of iterations
+        self.numIters = 1000                        # Maximum number of iterations
         self.objf = fitness                         # Objective function
-        self.maxSameBestSol = 10
-
+        self.maxSameBestSol = self.numIters / 5         
         self.distanceMatrix = read_from_file(filename)
-        self.numCities = self.distanceMatrix.shape[0]         # Boundary of the domain, not to be changed
-        self.maxTime = 300                                    # Maximum 5 minutes
+        self.numCities = self.distanceMatrix.shape[0]         
+        self.maxTime = 300                          # Maximum 5 minutes
 
         """ Initialize the first population """
+        # TSP.initialitazion_randomCycle(self)
+
+        startInitialization = time.time()
+        TSP.initialitazion_RandomValid(self)
+        initializationTime = time.time() - startInitialization
+        print("--- Initialization: %s seconds ---" % initializationTime)
+
+    def initialitazion_random(self):
         self.population = np.zeros((self.lambdaa, self.numCities - 1)).astype(int)
-        # self.population = np.vstack([np.arange(1, self.numCities)] * self.lambdaa)
+        for i in range(self.lambdaa):
+            np.random.shuffle(self.population[i, :])
+    
+    # Parti da 0 e guardo quali sono i nodi che non hanno infinito e ne prendo uno a caso, per ogni nodo
+    def initialitazion_RandomValid(self) -> None:
+        self.population = np.zeros((self.lambdaa, self.numCities-1), dtype=int)
+        for i in range(self.lambdaa):
+            rIndividual = np.random.permutation(np.arange(1, self.numCities))
+            obj = fitness(rIndividual, self.distanceMatrix)
+            while obj == np.inf:
+                rIndividual = np.random.permutation(np.arange(1, self.numCities))
+                obj = fitness(rIndividual, self.distanceMatrix)
+            self.population[i, :] = rIndividual.astype(int)
+        return self.population
+
+    def initialitazion_randomCycle(self):
+        self.population = np.zeros((self.lambdaa, self.numCities - 1)).astype(int)
         for i in range(self.lambdaa):
             self.population[i, :] = self.random_cycle()
-            # np.random.shuffle(self.population[i, :])
 
     def optimize(self):
         startTotTime = time.time()
@@ -65,11 +87,11 @@ class TSP:
             mutatetime = time.time() - startmutate
 
             startelemination = time.time()
-            self.population = self.elimination(joinedPopulation, self.lambdaa)                         # population = joinedPopulation - eliminated = lambdaa
+            self.population = self.elimination(joinedPopulation, self.lambdaa)          # population = joinedPopulation - eliminated = lambdaa
             elimtime = time.time() - startelemination
 
             itT = time.time() - start
-            fvals = pop_fitness(self.population, self.distanceMatrix)
+            fvals = pop_fitness(self.population, self.distanceMatrix)                   # compute the fitness of rhe population
 
             # Save progress
             previousBestFitness = bestFitness
@@ -86,6 +108,8 @@ class TSP:
             ((time.time() - startTotTime) < self.maxTime) and (i<=self.numIters)
             if i >= self.numIters:
                 terminationCriteria = False
+                print("Terminated because of number of iteration limit!")
+                break
             # Termination criteria 2: bestFitness doesn't improve for 'maxSameBestSol' times
             if bestFitness == previousBestFitness and bestFitness != np.inf:
                 countSameBestSol += 1
@@ -93,7 +117,8 @@ class TSP:
                 countSameBestSol = 0
             if countSameBestSol >= self.maxSameBestSol:
                 terminationCriteria = False
-                print("Terminated because of %d same best solutions"%countSameBestSol)
+                print("Terminated because of %d same best solutions!"%countSameBestSol)
+                break
 
         print('Doneeee')
         totTime = time.time() - startTotTime
@@ -187,7 +212,6 @@ class TSP:
         path[cp1:cp2 + 1] = path[cp1:cp2 + 1][::-1]
         return path
     
-    # TODO consider age-based elimination
     def elimination(self, population, lambdaa):
         fvals = pop_fitness(population, self.distanceMatrix)
         sortedFitness = np.argsort(fvals)
@@ -220,6 +244,20 @@ class TSP:
         # in case it got to a dead end, rerun
         return self.random_cycle()
 
+    # def adapt_alpha(self, path):
+    #     # Calculate success rate based on the objective function value
+    #     success_rate = (1.0 / (np.sqrt(fitness(path, self.distanceMatrix)) + 1)) * self.numCities
+
+    #     if success_rate > 0.85:
+    #         individual[self.adjacency_mat.shape[0]] *= 0.9
+    #     elif success_rate < 0.4:
+    #         individual[self.adjacency_mat.shape[0]] *= 1.1
+
+    #     # Ensure alpha stays within a reasonable range (0 to 1)
+    #     individual[self.adjacency_mat.shape[0]] = max(0.01, min(0.99, individual[self.adjacency_mat.shape[0]]))
+
+
+
 """ Compute the objective function of a population of individuals"""
 def pop_fitness(population, distanceMatrix):
     return np.array([fitness(path, distanceMatrix) for path in population])
@@ -231,35 +269,29 @@ def fitness(path, distanceMatrix):
         sum += distanceMatrix[path[i]][path[i + 1]]
     return sum
 
-# def plot_graph(mean, best):
-#     plt.plot(mean, label='Mean fitness')
-#     plt.title('Mean fitness convergence')
-#     plt.xlabel('Iterations')
-#     plt.ylabel('mean fitness')
-
-#     plt.plot(best, label='Best fitness')
-#     plt.title('Best fitness convergence')
-#     plt.xlabel('Iterations')
-#     plt.ylabel('best fitness')
-#     plt.legend()
-#     plt.show()
-
 # --------------------------------------------------------- #
 
-tsp = TSP(fitness, "tour750.csv")
+tsp = TSP(fitness, "tour500.csv")
+
 mean, best, it = tsp.optimize()
 # plot_graph(mean, best)
 
 # Here: 
 # tour50: simple greedy heuristic 28772 
-# tour100: simple greedy heuristic 83947
-# tour200: simple greedy heuristic 66080
+# tour100: simple greedy heuristic 81616        (time 78s, 1k iterations, pop 150, alpha 0.23, init randomValid)
+# tour200: simple greedy heuristic 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)
 # tour500: simple greedy heuristic 1404427
 # tour750: simple greedy heuristic 
 # tour1000: simple greedy heuristic 
 
 
-
+# Prof heuristics: 
+# tour50: simple greedy heuristic 28772 
+# tour100: simple greedy heuristic 81616        (time 78s, 1k iterations, pop 150, alpha 0.23, init randomValid)
+# tour200: simple greedy heuristic 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)
+# tour500: simple greedy heuristic 1404427
+# tour750: simple greedy heuristic 
+# tour1000: simple greedy heuristic 
 
 
 
