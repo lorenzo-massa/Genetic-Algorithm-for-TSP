@@ -16,9 +16,9 @@ def read_from_file(filename):
 class TSP:
     """ Parameters """
     def __init__(self, fitness, filename):
-        self.alpha = 0.1                            # Mutation probability
+        self.alpha = 0.23                           # Mutation probability
         self.mutationratios = [7, 1, 1, 15]         # swap, insert, scramble, inversion -> mutation ratio
-        self.lambdaa = 100                          # Population size
+        self.lambdaa = 200                          # Population size
         self.mu = self.lambdaa * 2                  # Offspring size       
         self.k = 3                                  # Tournament selection
         self.numIters = 2000                        # Maximum number of iterations
@@ -32,43 +32,46 @@ class TSP:
         startInitialization = time.time()
         # TSP.initialitazion_randomCycle(self)
         # TSP.initialitazion_RandomValid(self)
-        TSP.initialization_mix(self)
+        self.population = TSP.initialization_mix(self)
         initializationTime = time.time() - startInitialization
         print("--- Initialization: %s seconds ---" % initializationTime)
     
     def initialization_mix(self) -> np.ndarray:
         # Create a matrix of random individuals
-        self.population = np.zeros((self.lambdaa, self.numCities - 1)) 
+        population = np.zeros((self.lambdaa, self.numCities - 1)) 
+
         for i in range(self.lambdaa):
+
             if i < self.lambdaa*0.1:
-                print("\trandom cyle")
-            #   new_individual = TSP.generate_individual_greedy(self)
+                # print("\trandom cyle")
+                # new_individual = TSP.generate_individual_greedy(self)
                 new_individual = TSP.random_cycle(self)
-                print("\t\t", fitness(new_individual, self.distanceMatrix))
+                # print("\t\t", fitness(new_individual, self.distanceMatrix))
             elif i >= self.lambdaa * 0.2 and i < self.lambdaa * 0.4:
-                print("\tgreedy")
+                # print("\tgreedy")
                 new_individual = TSP.generate_individual_greedy(self)
-                print("\t\t", fitness(new_individual, self.distanceMatrix))
+                # print("\t\t", fitness(new_individual, self.distanceMatrix))
             elif i >= self.lambdaa * 0.4 and i < self.lambdaa * 0.6:
-                print("\tnearest neighbour")
+                # print("\tnearest neighbour")
                 new_individual = TSP.generate_individual_nearest_neighbor(self)
-                print("\t\t", fitness(new_individual, self.distanceMatrix))
+                # print("\t\t", fitness(new_individual, self.distanceMatrix))
             else:
-                print("\trandom")
+                # print("\trandom")
                 new_individual = TSP.generate_individual_random(self)
-                print("\t\t", fitness(new_individual, self.distanceMatrix))
+                # print("\t\t", fitness(new_individual, self.distanceMatrix))
+            
             # Evaluate the individual with the objective function
             obj = fitness(new_individual, self.distanceMatrix)
 
             max_tries = self.numCities
-            # if obj of the previous individual is not inf it will skip this
             s=""
+            # if obj of the previous individual is not inf it will skip this
             while obj == np.inf and max_tries > 0:
                 s +="."
                 new_individual = TSP.generate_individual_random(self)
                 obj = fitness(new_individual, self.distanceMatrix)
                 max_tries -= 1
-            print(s)
+            # print(s)
 
             if not TSP.tourIsValid(self, new_individual):
                 print("NOT VALID")
@@ -79,8 +82,8 @@ class TSP:
             # print(alpha)
             # Concatenate the alpha value to the individual
             # new_individual = np.concatenate((new_individual, alpha))
-            self.population[i, :] = new_individual
-        return self.population
+            population[i, :] = new_individual
+        return population
 
     def initialitazion_random(self):
         self.population = np.zeros((self.lambdaa, self.numCities - 1)).astype(int)
@@ -301,13 +304,18 @@ class TSP:
         # Create an individual choosing always the nearest city
         individual = np.zeros(self.numCities-1).astype(np.int64)
         not_visited = np.arange(1, self.numCities)
-        for ii in range(1, self.numCities):
+        nearest_city = np.argmin(self.distanceMatrix[0, not_visited])
+        individual[0] = not_visited[nearest_city]
+        not_visited = np.delete(not_visited, nearest_city)
+
+        for ii in range(1, self.numCities-1):
             # Select the nearest city
             nearest_city = np.argmin(self.distanceMatrix[individual[ii - 1], not_visited])
             # Add the nearest city to the individual
-            individual[ii-1] = not_visited[nearest_city]
+            individual[ii] = not_visited[nearest_city]
             # Remove the nearest city from the not visited list
             not_visited = np.delete(not_visited, nearest_city)
+            # print(fitness(individual, self.distanceMatrix))
         return individual
 
     def generate_individual_random(self):
@@ -355,12 +363,15 @@ mean, best, it = tsp.optimize()
 
 # Here: 
 # tour50: simple greedy heuristic 28772                                                                                             (TARGET 24k)
+    # (time: , iter:, )
 # tour100: simple greedy heuristic 81616                                                                                            (TARGET 81k)
     # 81616 (time 78s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 80631 (pop 500, alpha 0.23, mutate also the initial pop, init randomValid, circa 600 ite)
     # 80612 (pop 500, tutto uguale a quella sopra ma con init_mix, 709 ite)
 # tour200: simple greedy heuristic 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)                   (TARGET 35k)
-# tour500: simple greedy heuristic 1404427                                                                                          (TARGET 141k)
-    # 938566
+# tour500: simple greedy heuristic                                                                                                  (TARGET 141k)
+    # 162248 (time 79  it 344  pop 100 alpha 0.1  init mix)
+    # 160392.. (time ..  it ..   pop 200 alpha 0.23  init mix)
+
 # tour750: simple greedy heuristic                                                                                                  (TARGET 195k)   
 # tour1000: simple greedy heuristic                                                                                                 (TARGET 193k)
