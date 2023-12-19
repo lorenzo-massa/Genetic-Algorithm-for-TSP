@@ -253,8 +253,8 @@ def initialize() -> np.ndarray:
 
     for i in range(lambda_):
 
-        if i < lambda_*0.02:
-            new_individual = generate_individual_greedy()
+        #if i < lambda_*0.02:
+        #    new_individual = generate_individual_greedy()
         if i >= lambda_*0.02 and i < lambda_*0.05:
             new_individual = generate_individual_nearest_neighbor()
         else:
@@ -614,5 +614,5 @@ if __name__ == "__main__":
 # tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 81k)
 # tour200: simple greedy heuristic 39745    (TARGET 35k)    (BEST 38k)
 # tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 155k)
-# tour750: simple greedy heuristic 197541  (TARGET 177k)   (BEST 203k)
+# tour750: simple greedy heuristic 197541  (TARGET 177k)   (BEST 200k)
 # tour1000: simple greedy heuristic 195848 (TARGET 176k)   (BEST 205k)
