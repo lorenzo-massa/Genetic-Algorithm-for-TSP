@@ -4,14 +4,17 @@ import random
 import matplotlib.pyplot as plt
 import time
 from numba import njit
+import itertools
+import math
 
-file = "tour750.csv"
+file = "tour500.csv"
 distanceMatrix = np.loadtxt(file, delimiter=",")
 
 lambda_=300
 mu=lambda_*2
 my_alpha=0.25
 max_iterations=1000
+MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations / 3
 
 
 # Modify the class name to match your student number.
@@ -25,14 +28,7 @@ class r0123456:
         file = open(filename)
         file.close()
 
-        # Your code here.
-
-        TSP = TravelsalesmanProblem(distanceMatrix,
-                                    lambda_=lambda_,
-                                    mu=mu,
-                                    alpha=my_alpha,
-                                    max_iterations=max_iterations)
-        
+        # Your code here.    
 
         # Initialize the population
         start_time = time.time()
@@ -56,6 +52,11 @@ class r0123456:
         previousBestObjective = 0
         differentBestSolutions = 0
 
+        # Local search after initialization
+        #population = local_search_best_subset(population, 3)
+
+        tuning = 2
+
         yourConvergenceTestsHere = True
         while yourConvergenceTestsHere:
             # meanObjective = 0.0
@@ -75,17 +76,15 @@ class r0123456:
             joinedPopulation = np.vstack((population, mutation(offspring)))
 
             # Elimination
-            if iteration < 80:
-                population = elimination(joinedPopulation)
-            elif iteration >= 80 and iteration < 180:
-                joinedPopulation = one_opt(joinedPopulation, 3)
-                population = elimination(joinedPopulation)
-            elif iteration >= 180 and iteration < 300:
-                joinedPopulation = one_opt(joinedPopulation, 5)
-                population = elimination(joinedPopulation)
+            if differentBestSolutions == 10:
+                tuning += 1
+                
+            if iteration % 2 == 0: # Better not to do to all the population
+                joinedPopulation = one_opt(joinedPopulation, tuning*2)
             else:
-                joinedPopulation = one_opt(joinedPopulation, 20)
-                population = elimination(joinedPopulation)
+                joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
+
+            population = elimination_half_half(joinedPopulation)
 
 
             # Show progress
@@ -95,7 +94,6 @@ class r0123456:
             previousBestObjective = bestObjective  # Store the previous best objective
 
             bestObjective = np.min(fvals)
-            TSP.bestObj = bestObjective
             bestSolution = population[np.argmin(fvals), :]
 
             # Save progress
@@ -108,14 +106,14 @@ class r0123456:
 
             # Print progress
             print(
-                "Iteration: %d, Mean: %f, Best: %f, Alpha Mean: %f"
-                % (iteration, meanObjective, bestObjective, alphaMean)
+                "Iteration: %d, Mean: %f, Best: %f, Alpha Mean: %f, Tuning: %d"
+                % (iteration, meanObjective, bestObjective, alphaMean, tuning)
             )
 
             iteration += 1
 
             # Check for termination
-            if iteration >= TSP.max_iterations:
+            if iteration >= max_iterations:
                 yourConvergenceTestsHere = False
 
             if bestObjective == previousBestObjective and bestObjective != np.inf:
@@ -123,7 +121,7 @@ class r0123456:
             else:
                 differentBestSolutions = 0
 
-            if differentBestSolutions >= TSP.MAX_DIFFERENT_BEST_SOLUTIONS:
+            if differentBestSolutions >= MAX_DIFFERENT_BEST_SOLUTIONS:
                 yourConvergenceTestsHere = False
                 print(
                     "Terminated because of %d equal best solutions"
@@ -157,84 +155,6 @@ class r0123456:
         return 0
 
 
-class TravelsalesmanProblem:
-    def __init__(
-        self,
-        adjacency_mat: np.ndarray,
-        lambda_: int,
-        mu: int,
-        alpha: float,
-        max_iterations,
-    ) -> None:
-        self.adjacency_mat = adjacency_mat
-        self.lambda_ = lambda_  # Population size
-        self.mu = mu  # Offspring size (must be the double of lambda)
-        self.alpha = alpha  # Mutation probability
-        self.max_iterations = max_iterations  # Maximum number of iterations
-        self.MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations / 4
-        self.bestObj = np.inf
-
-    def selection(self,population: np.ndarray, k: int = 3):
-
-        # Create a matrix of selected parents
-        selected = np.zeros((self.mu, self.adjacency_mat.shape[0] + 1))  # +1 for the alpha value
-        selected[:,:-1] = selected[:,:-1].astype(int)
-
-        # Selecting the parents
-        for ii in range(self.mu):
-            # Select k random individuals from the population
-            ri = random.sample(range(population.shape[0]), k)
-
-            print("ri: ", ri)
-            print("population[ri]: ", population[ri])
-
-            # Select the best individual from the k random individuals
-            best = np.argmin(np.apply_along_axis(objf, 1, population[ri, :-1]))
-
-            # Add the selected individual to the matrix of selected parents
-            selected[ii, :] = population[ri[best], :]
-        return selected
-
-    
-    def elimination_with_crowding(self, joinedPopulation: np.ndarray):
-        # Apply the objective function to each row of the joinedPopulation array
-        fvals = np.apply_along_axis(objf, 1, joinedPopulation[:, :-1])
-
-        # Calculate the crowding distance for each individual
-        crowding_distances = self.crowding_distances(joinedPopulation, fvals)
-
-        # Sort the individuals based on the objective function value and crowding distance
-        sorted_indices = np.lexsort((crowding_distances, fvals))
-        sorted_population = joinedPopulation[sorted_indices, :]
-
-        # Select the best lambda individuals with crowding selection
-        survivors = sorted_population[:self.lambda_, :]
-
-        return survivors
-
-    
-    def crowding_distances(self, population: np.ndarray, fvals: np.ndarray):
-        num_individuals, _ = population.shape
-        crowding_distances = np.zeros(num_individuals)
-
-        # Calculate crowding distance for each individual
-        for obj_idx in range(population.shape[1] - 1):  # Exclude the last column (alpha values)
-            sorted_indices = np.argsort(fvals)
-            crowding_distances[sorted_indices[0]] = np.inf
-            crowding_distances[sorted_indices[-1]] = np.inf
-
-            obj_range = fvals[sorted_indices[-1]] - fvals[sorted_indices[0]]
-            if obj_range == 0:
-                continue
-
-            for i in range(1, num_individuals - 1):
-                crowding_distances[sorted_indices[i]] += (
-                    fvals[sorted_indices[i + 1]] - fvals[sorted_indices[i - 1]]
-                ) / obj_range
-
-        return crowding_distances
-
-
 ########################################################################################
     
 @njit
@@ -251,11 +171,15 @@ def initialize() -> np.ndarray:
     # Create a matrix of random individuals
     population = np.zeros((lambda_, distanceMatrix.shape[0] + 1)) # +1 for the alpha value
 
+    not_inf = 0
+
     for i in range(lambda_):
 
-        #if i < lambda_*0.02:
-        #    new_individual = generate_individual_greedy()
-        if i >= lambda_*0.02 and i < lambda_*0.05:
+        if i < lambda_*0.01:
+            new_individual = generate_individual_greedy()
+        elif i >= lambda_*0.01 and i < lambda_*0.02:
+            new_individual = generate_individual_greedy_reverse()
+        elif i >= lambda_*0.02 and i < lambda_*0.05:
             new_individual = generate_individual_nearest_neighbor()
         else:
             new_individual = generate_individual_random()
@@ -280,7 +204,13 @@ def initialize() -> np.ndarray:
         # Concatenate the alpha value to the individual
         new_individual = np.concatenate((new_individual, alpha))
 
+        if obj == objf(new_individual[:-1]) != np.inf:
+            not_inf += 1
+
         population[i, :] = new_individual
+
+
+    print("not_inf: ", not_inf)
 
     return population
 
@@ -289,9 +219,6 @@ def objf_pop(population : np.ndarray):
     sum_distance = np.zeros(population.shape[0])
 
     for i in range(population.shape[0]):
-        if not tourIsValid(population[i,:-1]):
-            print("population ", i)
-            print(population[i])
         sum_distance[i] = objf(population[i,:-1])
     
     return sum_distance
@@ -376,43 +303,98 @@ def one_opt(population: np.ndarray, k):
         population[i, :] = best_tour
 
     return population
+
+def local_search_best_subset(population: np.ndarray, k: int):
+    # Apply the best subset solution to each row of the population array
+    for ii in range(population.shape[0]):
+        population[ii, :-1] = best_subset_solution(population[ii, :-1], k)
     
-def one_opt_mining(population: np.ndarray):
+    return population
 
-        for i in range(population.shape[0]):
+def best_subset_solution(tour: np.ndarray, k: int):
 
-            # For each individual in the population
-            best_tour = population[i, :]
-            best_obj = objf(best_tour[:-1])
+    tour = tour.astype(np.int64)
 
+    # Generate one randdom index
+    ri = np.random.choice(np.arange(1, distanceMatrix.shape[0] - 1 - k), 1, replace=False)[0]
 
-            for j in range(distanceMatrix.shape[0] - 1):
-                tour = population[i, :].copy()
-                tour[:-1] = tour[:-1].astype(np.int64)
-                
-                # Swap the j-th and j+1-th cities
-                tour[j], tour[j+1] = tour[j+1], tour[j]
+    # Find the best subset solution from ri to ri+k using brute force
 
-                if not tourIsValid(tour[:-1]):
-                    print("tour: ", tour)
-                    raise ValueError("Duplicate in tour durin two opt")
+    # Initialize the best tour and objective function value
+    best_tour = tour.copy()
+    best_obj = objf_perm(tour[ri:ri+k+1])
 
+    # Generate all the possible permutations of the cities from ri to ri+k
+    permutations = np.array(list(itertools.permutations(tour[ri:ri+k])))
 
-                # Evaluate the new tour
-                new_obj = objf(tour[:-1])
+    # TODO GENERATE PERMUTATIONS WITH NUMBA
+    
+    # Add tour[ri-1] and tour[ri+k] to the permutations
+    permutations = np.concatenate((np.ones((permutations.shape[0], 1)).astype(np.int64) * tour[ri-1], permutations), axis=1)
+    permutations = np.concatenate((permutations, np.ones((permutations.shape[0], 1)).astype(np.int64) * tour[ri+k]), axis=1)
 
-                # Check if the new tour is better
-                if new_obj < best_obj:
-                    best_tour = tour
-                    best_obj = new_obj 
+    # Evaluate the objective function for each permutation
+    objs = objf_permutation(permutations)
+    best = np.argmin(objs)
 
+    # Check if the best permutation is better than the original tour
+    if objs[best] < best_obj:
 
-            # Check if the best tour is different from the original one
-            if not np.array_equal(best_tour, population[i, :]):
-                population[i] = best_tour
+        # Update the best tour and objective function value
+        best_tour[ri:ri+k] = permutations[best, 1:-1]
 
-        return population
+        if not tourIsValid(best_tour):
+            print("best_tour: ", best_tour)
+            raise ValueError("Invalid tour during best subset solution")
 
+    return best_tour
+
+@njit
+def calculate_factorial(n):
+    result = 1
+    for i in range(1, n + 1):
+        result *= i
+    return result
+
+@njit
+def generate_permutations(arr: np.ndarray):
+    n = arr.shape[0]
+    factorial = calculate_factorial(n)
+    result = np.empty((factorial, n), dtype=arr.dtype)
+
+    for i in range(factorial):
+        pool = list(arr)
+        for j in range(n, 0, -1):
+            index = i // calculate_factorial(j - 1)
+            result[i, n - j] = pool.pop(index)
+            i -= index * calculate_factorial(j - 1)
+
+    return result
+
+@njit
+def objf_perm(tour: np.ndarray):
+        
+        # Convert float64 indices to integers
+        tour = tour.astype(np.int64)
+    
+        # Apply the objective function to each row of the cities array
+        sum_distance = 0
+    
+        for ii in range(tour.shape[0] - 1):
+            # Sum the distances between the cities
+            sum_distance += distanceMatrix[tour[ii], tour[ii + 1]]
+    
+        return sum_distance
+
+@njit
+def objf_permutation(permutations: np.ndarray):
+        # Apply the objective function to each row of the permutations array
+        obj = np.zeros(permutations.shape[0])
+    
+        for ii in range(permutations.shape[0]):
+            obj[ii] = objf_perm(permutations[ii, :])
+    
+        return obj
 
 @njit
 def generate_individual_greedy():
@@ -432,6 +414,35 @@ def generate_individual_greedy():
 
     return individual
     
+@njit
+def generate_individual_greedy_reverse():
+    # Create an individual choosing always the nearest city
+    individual = np.zeros(distanceMatrix.shape[0]).astype(np.int64)
+    individual[0] = 0
+
+    # Last city is random
+    individual[distanceMatrix.shape[0]-1] = np.random.randint(1, distanceMatrix.shape[0])
+
+    not_visited = np.arange(1, distanceMatrix.shape[0])
+    not_visited = np.delete(not_visited, np.where(not_visited == individual[distanceMatrix.shape[0]-1])[0][0])
+
+    for ii in range(distanceMatrix.shape[0]-2, 0 , -1):
+        # Select the nearest city backwards
+        nearest_city = np.argmin(distanceMatrix[not_visited, individual[ii]])
+        # Add the nearest city to the individual
+        individual[ii] = not_visited[nearest_city]
+        # Remove the nearest city from the not visited list
+        not_visited = np.delete(not_visited, nearest_city)
+
+
+    if not tourIsValid(individual):
+        print("individual: ", individual)
+        raise ValueError("Invalid tour during greedy reverse")
+
+    return individual
+
+
+
 @njit
 def generate_individual_nearest_neighbor():
     # Create an individual choosing always the nearest city , second city is random
@@ -598,11 +609,35 @@ def elimination( joinedPopulation: np.ndarray):
         return survivors
     
 
+def elimination_half_half(joinedPopulation: np.ndarray):
+
+    # Apply the objective function to each row of the joinedPopulation array
+    fvals = objf_pop(joinedPopulation)
+
+    # Sort the individuals based on their objective function value
+    perm = np.argsort(fvals)
+
+    # Select the best lambda/2 individuals
+    n_best = int(lambda_/4)
+    best_survivors = joinedPopulation[perm[0 : n_best], :]
+
+    # Select randomly the rest individuals
+    random_survivors = joinedPopulation[np.random.choice(perm[n_best:], lambda_ - n_best, replace=False), :]
+
+    # Concatenate the best and random survivors
+    survivors = np.vstack((best_survivors, random_survivors))
+    
+    return survivors
+
 ########################################################################################
 
 
 # Main 
 if __name__ == "__main__":
+
+    print(generate_permutations(np.array([1,2,3])))
+
+
     # Calculate the time
     start_time = time.time()
     r0123456().optimize(file)
@@ -613,6 +648,6 @@ if __name__ == "__main__":
 # tour50: simple greedy heuristic 27723     (TARGET 24k)    (BEST 26k)
 # tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 81k)
 # tour200: simple greedy heuristic 39745    (TARGET 35k)    (BEST 38k)
-# tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 155k)
+# tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 150k)
 # tour750: simple greedy heuristic 197541  (TARGET 177k)   (BEST 200k)
-# tour1000: simple greedy heuristic 195848 (TARGET 176k)   (BEST 205k)
+# tour1000: simple greedy heuristic 195848 (TARGET 176k)   (BEST 200k)
