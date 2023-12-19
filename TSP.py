@@ -59,16 +59,12 @@ class TSP:
             obj = fitness(new_individual, self.distanceMatrix)
 
             max_tries = self.numCities
-            s=""
             # if obj of the previous individual is not inf it will skip this
             while obj == np.inf and max_tries > 0:
-                s +="."
                 new_individual = TSP.generate_individual_random(self)
                 obj = fitness(new_individual, self.distanceMatrix)
                 max_tries -= 1
-            # print(s)
-            print("\t", obj)
-
+            print("\t\t", obj)
             if not TSP.tourIsValid(self, new_individual):
                 print("NOT VALID")
                 raise ValueError("Invalid tour during initialization")
@@ -274,7 +270,7 @@ class TSP:
         fvals = pop_fitness(population, self.distanceMatrix)
         sortedIndices= np.argsort(fvals)
         
-        bestQuarterIndices = sortedIndices[:(self.lambdaa//2)]
+        bestQuarterIndices = sortedIndices[:(self.lambdaa//4)]
         restIndices = np.setdiff1d(np.arange(len(population)), bestQuarterIndices)
         chosenIndices = np.random.choice(restIndices, size= (self.lambdaa - len(sortedIndices)//4), replace=False)
 
@@ -355,7 +351,7 @@ class TSP:
         for ii in range(1, self.numCities-1):
             # Select the nearest city
             nearest_city = np.argmin(self.distanceMatrix[individual[ii - 1], not_visited])
-            # Add the nearest city to the individual
+            # Add the nearest city to the individual  
             individual[ii] = not_visited[nearest_city]
             # Remove the nearest city from the not visited list
             not_visited = np.delete(not_visited, nearest_city)
@@ -390,14 +386,16 @@ class TSP:
     
     def generate_individual_nearest_neighbor(self):
         # Create an individual choosing always the nearest city , second city is random
-        individual = np.zeros(self.numCities -1).astype(np.int64)
-        individual[0] = np.random.randint(1, self.distanceMatrix.shape[0]) # first city is random
+        individual = np.zeros(self.numCities-1).astype(np.int64)
         not_visited = np.arange(1,self.numCities)
+        # first city chosen randomly
+        individual[0] = np.random.randint(1, self.numCities) 
         not_visited = np.delete(not_visited, np.where(not_visited == individual[0])[0][0])
-        
-        for ii in range(2, self.numCities): # 2?
-            nearest_city = np.argmin(self.distanceMatrix[individual[ii - 1], not_visited])
-            individual[ii-1] = not_visited[nearest_city]
+        # print(np.argmin(self.distanceMatrix[individual[0], not_visited]))
+        for k in range(1, self.numCities-1): 
+            # print(np.argmin(self.distanceMatrix[individual[k-1], not_visited]))
+            nearest_city = np.argmin(self.distanceMatrix[individual[k-1], not_visited])
+            individual[k] = not_visited[nearest_city]
             not_visited = np.delete(not_visited, nearest_city)
         return individual
 
