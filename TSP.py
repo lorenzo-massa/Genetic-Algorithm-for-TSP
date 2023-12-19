@@ -18,47 +18,42 @@ class TSP:
     def __init__(self, fitness, filename):
         self.alpha = 0.23                           # Mutation probability
         self.mutationratios = [7, 1, 1, 15]         # swap, insert, scramble, inversion -> mutation ratio
-        self.lambdaa = 200                          # Population size
+        self.lambdaa = 100                          # Population size
         self.mu = self.lambdaa * 2                  # Offspring size       
         self.k = 3                                  # Tournament selection
         self.numIters = 2000                        # Maximum number of iterations
         self.objf = fitness                         # Objective function
-        self.maxSameBestSol = self.numIters / 10         
+        self.maxSameBestSol = 100        
         self.distanceMatrix = read_from_file(filename)
         self.numCities = self.distanceMatrix.shape[0]         
         self.maxTime = 300                          # Maximum 5 minutes
 
         """ Initialize the first population """
         startInitialization = time.time()
-        # TSP.initialitazion_randomCycle(self)
-        # TSP.initialitazion_RandomValid(self)
         self.population = TSP.initialization_mix(self)
         initializationTime = time.time() - startInitialization
         print("--- Initialization: %s seconds ---" % initializationTime)
-    
+
     def initialization_mix(self) -> np.ndarray:
         # Create a matrix of random individuals
         population = np.zeros((self.lambdaa, self.numCities - 1)) 
 
         for i in range(self.lambdaa):
-
-            if i < self.lambdaa*0.1:
-                # print("\trandom cyle")
-                # new_individual = TSP.generate_individual_greedy(self)
-                new_individual = TSP.random_cycle(self)
-                # print("\t\t", fitness(new_individual, self.distanceMatrix))
-            elif i >= self.lambdaa * 0.2 and i < self.lambdaa * 0.4:
+            print("individual num: ", i)
+            # if i < self.lambdaa*0.01:
+            #     new_individual = TSP.initialitazion_randomCycle(self)
+            if i < self.lambdaa*0.02:
                 # print("\tgreedy")
                 new_individual = TSP.generate_individual_greedy(self)
-                # print("\t\t", fitness(new_individual, self.distanceMatrix))
-            elif i >= self.lambdaa * 0.4 and i < self.lambdaa * 0.6:
+            elif i >= self.lambdaa * 0.02 and i < self.lambdaa * 0.04:
+                # print("\tgreedy inverse")
+                new_individual = TSP.generate_individual_greedy_inverse(self)
+            elif i >= self.lambdaa * 0.04 and i < self.lambdaa * 0.07:
                 # print("\tnearest neighbour")
                 new_individual = TSP.generate_individual_nearest_neighbor(self)
-                # print("\t\t", fitness(new_individual, self.distanceMatrix))
             else:
-                # print("\trandom")
+                # print("\tjust random")
                 new_individual = TSP.generate_individual_random(self)
-                # print("\t\t", fitness(new_individual, self.distanceMatrix))
             
             # Evaluate the individual with the objective function
             obj = fitness(new_individual, self.distanceMatrix)
@@ -72,16 +67,11 @@ class TSP:
                 obj = fitness(new_individual, self.distanceMatrix)
                 max_tries -= 1
             # print(s)
+            print("\t", obj)
 
             if not TSP.tourIsValid(self, new_individual):
                 print("NOT VALID")
                 raise ValueError("Invalid tour during initialization")
-            
-            # Create alpha with gaussian distribution
-            # alpha = np.array([np.random.normal(self.alpha, 0.05)])
-            # print(alpha)
-            # Concatenate the alpha value to the individual
-            # new_individual = np.concatenate((new_individual, alpha))
             population[i, :] = new_individual
         return population
 
@@ -132,12 +122,24 @@ class TSP:
             crossstime = time.time() - startcross
 
             startmutate = time.time()
-            # joinedPopulation = np.vstack((self.mutate(offspring), self.population))     # joinedPopulation = Initial polutation + mutated children = lambdaa*2
-            joinedPopulation = np.vstack((self.mutate(offspring), self.mutate(self.population))) 
+            joinedPopulation = np.vstack((self.mutate(offspring), self.population))   # joinedPopulation = Initial polutation + mutated children = lambdaa*2
+            # joinedPopulation = np.vstack((self.mutate(offspring), self.mutate(self.population))) 
             mutatetime = time.time() - startmutate
 
             startelemination = time.time()
-            self.population = self.elimination(joinedPopulation, self.lambdaa)          # population = joinedPopulation - eliminated = lambdaa
+            # self.population = self.elimination(joinedPopulation, self.lambdaa)          
+            # Elimination                                                               # population = joinedPopulation - eliminated = lambdaa
+            if i < 10:
+                self.population = self.elimination(joinedPopulation)
+            elif i >= 10 and i < 200:
+                joinedPopulation = self.one_opt(joinedPopulation, 2)
+                self.population = self.elimination(joinedPopulation)
+            elif i >= 200 and i < 300:
+                joinedPopulation = self.one_opt(joinedPopulation, 5)     # int(self.numCities/100*2)
+                self.population = self.elimination(joinedPopulation)
+            else:
+                joinedPopulation = self.one_opt(joinedPopulation, 5)
+                self.population = self.elimination(joinedPopulation)
             elimtime = time.time() - startelemination
 
             itT = time.time() - start
@@ -268,10 +270,16 @@ class TSP:
         path[cp1:cp2 + 1] = path[cp1:cp2 + 1][::-1]
         return path
     
-    def elimination(self, population, lambdaa):
+    def elimination(self, population):
         fvals = pop_fitness(population, self.distanceMatrix)
-        sortedFitness = np.argsort(fvals)
-        return population[sortedFitness[0: lambdaa], :]     # TODO check: lambdaa - 1
+        sortedIndices= np.argsort(fvals)
+        
+        bestQuarterIndices = sortedIndices[:(self.lambdaa//2)]
+        restIndices = np.setdiff1d(np.arange(len(population)), bestQuarterIndices)
+        chosenIndices = np.random.choice(restIndices, size= (self.lambdaa - len(sortedIndices)//4), replace=False)
+
+        final_indices = np.concatenate([bestQuarterIndices, chosenIndices])
+        return population[final_indices, :]     
 
     def random_cycle(self, goal=0, frontier=None, expanded=None):
         path_len = self.distanceMatrix.shape[0]
@@ -300,8 +308,44 @@ class TSP:
         # in case it got to a dead end, rerun
         return self.random_cycle()
     
+    """
+    def generate_individual_greedy_new(self):
+        # Create an individual choosing always the nearest city
+        individual = np.zeros(self.numCities-1).astype(np.int64)
+        not_visited = np.arange(1, self.numCities)
+
+        nearest_city_rows = np.argmin(self.distanceMatrix[0, not_visited])
+        nearest_city_col = np.argmin(self.distanceMatrix[not_visited, 0])
+
+        if self.distanceMatrix[0, nearest_city_col] > self.distanceMatrix[nearest_city_rows, 0]:
+            nearest = nearest_city_rows
+        else:
+            nearest = nearest_city_col
+        individual[0] = not_visited[nearest]
+        not_visited = np.delete(not_visited, nearest)
+
+        for ii in range(1, self.numCities-1):
+            # Select the nearest city
+            nearest_city = np.argmin(self.distanceMatrix[individual[ii - 1], not_visited])
+
+            nearest_city_rows = np.argmin(self.distanceMatrix[individual[ii - 1], not_visited])
+            nearest_city_col = np.argmin(self.distanceMatrix[not_visited, individual[ii - 1]])
+            if self.distanceMatrix[individual[ii - 1], nearest_city_col] > self.distanceMatrix[nearest_city_rows, individual[ii - 1]]:
+                nearest_city = nearest_city_rows
+            else:
+                nearest_city = nearest_city_col
+
+            # Add the nearest city to the individual
+            individual[ii] = not_visited[nearest_city]
+            # Remove the nearest city from the not visited list
+            not_visited = np.delete(not_visited, nearest_city)
+            # print(fitness(individual, self.distanceMatrix))
+        return individual
+    """
+
     def generate_individual_greedy(self):
         # Create an individual choosing always the nearest city
+
         individual = np.zeros(self.numCities-1).astype(np.int64)
         not_visited = np.arange(1, self.numCities)
         nearest_city = np.argmin(self.distanceMatrix[0, not_visited])
@@ -317,6 +361,20 @@ class TSP:
             not_visited = np.delete(not_visited, nearest_city)
             # print(fitness(individual, self.distanceMatrix))
         return individual
+    
+    def generate_individual_greedy_inverse(self):
+        individual = np.zeros(self.numCities-1).astype(np.int64)
+        not_visited = np.arange(1, self.numCities)
+
+        nearest_city = np.argmin(self.distanceMatrix[not_visited, 0])
+        individual[0] = not_visited[nearest_city]
+        not_visited = np.delete(not_visited, nearest_city)
+
+        for ii in range(1, self.numCities-1):
+            nearest_city = np.argmin(self.distanceMatrix[not_visited,individual[ii - 1]])
+            individual[ii] = not_visited[nearest_city]
+            not_visited = np.delete(not_visited, nearest_city)
+        return individual[::-1]
 
     def generate_individual_random(self):
         r = np.zeros(self.numCities-1).astype(np.int64)
@@ -336,11 +394,63 @@ class TSP:
         individual[0] = np.random.randint(1, self.distanceMatrix.shape[0]) # first city is random
         not_visited = np.arange(1,self.numCities)
         not_visited = np.delete(not_visited, np.where(not_visited == individual[0])[0][0])
+        
         for ii in range(2, self.numCities): # 2?
             nearest_city = np.argmin(self.distanceMatrix[individual[ii - 1], not_visited])
             individual[ii-1] = not_visited[nearest_city]
             not_visited = np.delete(not_visited, nearest_city)
         return individual
+
+    # MUCH LESS EFFICIENT
+    def one_opt_cc(population, k):
+        new_population = np.copy(population)
+        for i in range(len(new_population)):
+            path = new_population[i]
+            improved = True
+            while improved:
+                improved = False
+                indices_to_flip = np.random.choice(len(path) - 1, k, replace=False)
+
+                for index in indices_to_flip:
+                    j = index
+                    l = (index + 2) % (len(path) - 1)  # Ensure l is within bounds
+
+                    # Reverse the subpath in-place
+                    path[j:l] = np.flip(path[j:l])
+
+                    if tsp.tourIsValid(path):
+                        new_fitness = fitness(path, tsp.distanceMatrix)
+                        if new_fitness < fitness(new_population[i], tsp.distanceMatrix):
+                            improved = True
+                        else:
+                            # Revert the reverse if it doesn't improve the fitness
+                            path[j:l] = np.flip(path[j:l])
+        return new_population
+
+    def one_opt(self, population, k):
+        if k < 1 or k > population.shape[1] - 1:
+            raise ValueError("k must be between 2 and n-1")
+        for i in range(population.shape[0]):
+            # For each individual in the population
+            best_tour = population[i, :]
+            best_obj = fitness(best_tour, self.distanceMatrix)
+
+            # Select k random indices
+            k_list = sorted(np.random.choice(np.arange(1, self.numCities - 2), k, replace=False)) # k could be 1...48
+            for ri in k_list:
+                # Swap the ri-th and ri+1-th cities
+                tour = population[i, :].copy()
+                tour[ri], tour[ri+1] = tour[ri+1], tour[ri]
+
+                # Evaluate the new tour
+                new_obj = fitness(tour, self.distanceMatrix)
+
+                # Check if the new tour is better
+                if new_obj < best_obj:
+                    best_tour = tour
+                    best_obj = new_obj
+            population[i, :] = best_tour
+        return population
 
 """ Compute the objective function of a population of individuals"""
 def pop_fitness(population, distanceMatrix):
@@ -349,29 +459,42 @@ def pop_fitness(population, distanceMatrix):
 """ Compute the objective function of a candidate"""
 def fitness(path, distanceMatrix):
     path = path.astype(int)
-    sum = distanceMatrix[0, path[0]] + distanceMatrix[path[len(path) - 1]][0]
+    sum = distanceMatrix[0, path[0]] + distanceMatrix[path[len(path) - 1], 0]
     for i in range(len(path)-1):
         sum += distanceMatrix[path[i]][path[i + 1]]
     return sum
 
 # --------------------------------------------------------- #
 
-tsp = TSP(fitness, "tour750.csv")
+tsp = TSP(fitness, "tour500.csv")
 
 mean, best, it = tsp.optimize()
 # plot_graph(mean, best)
 
 # Here: 
-# tour50: simple greedy heuristic 28772                                                                                             (TARGET 24k)
-    # (time: , iter:, )
+# tour50: simple greedy heuristic                                                                                                   (TARGET 24k)
+    # 27134 (time 170 , iter 750 , pop 500,  alpha 0.23, init mix)
+    # 28971 uguale a sopra ma valori alti nella one_opt (10,15,20)
+
 # tour100: simple greedy heuristic 81616                                                                                            (TARGET 81k)
     # 81616 (time 78s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 80631 (pop 500, alpha 0.23, mutate also the initial pop, init randomValid, circa 600 ite)
     # 80612 (pop 500, tutto uguale a quella sopra ma con init_mix, 709 ite)
-# tour200: simple greedy heuristic 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)                   (TARGET 35k)
+
+# tour200: simple greedy heuristic                                                                                                  (TARGET 35k)
+    # 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)
+    # 38514        (time   it   pop 300  alpha 0.23  init mix  one_opt alti)
+    #              (time   it   pop 300  alpha 0.23  init mix  one_opt /100,/100*2, /100*5) 
+
 # tour500: simple greedy heuristic                                                                                                  (TARGET 141k)
     # 162248 (time 79  it 344  pop 100 alpha 0.1  init mix)
     # 160392.. (time ..  it ..   pop 200 alpha 0.23  init mix)
+    # 159899 (elimination half half, pop 100)
 
-# tour750: simple greedy heuristic                                                                                                  (TARGET 195k)   
-# tour1000: simple greedy heuristic                                                                                                 (TARGET 193k)
+# tour750: simple greedy heuristic                                                                                                  (TARGET 195k), prof 197541 
+    # 204010.. (time ..  it 600   pop 200 alpha 0.23  init mix)
+
+# tour1000: simple greedy heuristic                                                                                                 (TARGET 193k), prof 195848
+    # 209884    init 126s (senza random_cycle) (it 100, pop 300, alpha 0.23, init mix, one_opt troppo alto elim sempre 1.15s)
+    # 209764    init 42s (senza random_cycle) (it 100, pop 100, alpha 0.23, init mix, one_opt più basso (5) elim 0.6s)
+    # 211041    init 42s (senza random_cycle) (pop 100, alpha 0.23, init mix, elim basic )
