@@ -76,15 +76,18 @@ class r0123456:
             joinedPopulation = np.vstack((population, mutation(offspring)))
 
             # Elimination
-            if differentBestSolutions == 10:
+            if differentBestSolutions > 0 and differentBestSolutions % 8 == 0:
                 tuning += 1
+
+            if tuning > 7:
+                tuning = 3
                 
             if iteration % 2 == 0: # Better not to do to all the population
                 joinedPopulation = one_opt(joinedPopulation, tuning*2)
             else:
                 joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
 
-            population = elimination_half_half(joinedPopulation)
+            population = elimination_pro(joinedPopulation)
 
 
             # Show progress
@@ -106,8 +109,8 @@ class r0123456:
 
             # Print progress
             print(
-                "Iteration: %d, Mean: %f, Best: %f, Alpha Mean: %f, Tuning: %d"
-                % (iteration, meanObjective, bestObjective, alphaMean, tuning)
+                "Iteration: %d, Mean: %f, Best: %f, Alpha Mean: %f, Tuning: %d, Different Best: %d"
+                % (iteration, meanObjective, bestObjective, alphaMean, tuning, differentBestSolutions)
             )
 
             iteration += 1
@@ -179,10 +182,15 @@ def initialize() -> np.ndarray:
             new_individual = generate_individual_greedy()
         elif i >= lambda_*0.01 and i < lambda_*0.02:
             new_individual = generate_individual_greedy_reverse()
-        elif i >= lambda_*0.02 and i < lambda_*0.05:
+        elif i >= lambda_*0.02 and i < lambda_*0.04:
+            new_individual = generate_individual_nearest_neighbor_more_index(5)
+        elif i >= lambda_*0.04 and i < lambda_*0.06:
             new_individual = generate_individual_nearest_neighbor()
         else:
             new_individual = generate_individual_random()
+
+        if i >= lambda_*0.02 and i < lambda_*0.06:
+            print(" obj: ", objf(new_individual))
 
         # Evaluate the individual with the objective function
         obj = objf(new_individual)
@@ -304,6 +312,7 @@ def one_opt(population: np.ndarray, k):
 
     return population
 
+
 def local_search_best_subset(population: np.ndarray, k: int):
     # Apply the best subset solution to each row of the population array
     for ii in range(population.shape[0]):
@@ -315,8 +324,8 @@ def best_subset_solution(tour: np.ndarray, k: int):
 
     tour = tour.astype(np.int64)
 
-    # Generate one randdom index
-    ri = np.random.choice(np.arange(1, distanceMatrix.shape[0] - 1 - k), 1, replace=False)[0]
+    # Generate one random index
+    ri = np.random.randint(1, distanceMatrix.shape[0] - k)
 
     # Find the best subset solution from ri to ri+k using brute force
 
@@ -325,9 +334,10 @@ def best_subset_solution(tour: np.ndarray, k: int):
     best_obj = objf_perm(tour[ri:ri+k+1])
 
     # Generate all the possible permutations of the cities from ri to ri+k
-    permutations = np.array(list(itertools.permutations(tour[ri:ri+k])))
-
-    # TODO GENERATE PERMUTATIONS WITH NUMBA
+    if k <= 6:
+        permutations = np.array(list(itertools.permutations(tour[ri:ri+k]))) # Faster with small k
+    else:
+        permutations = generate_permutations(tour[ri:ri+k]) # Numba version
     
     # Add tour[ri-1] and tour[ri+k] to the permutations
     permutations = np.concatenate((np.ones((permutations.shape[0], 1)).astype(np.int64) * tour[ri-1], permutations), axis=1)
@@ -350,26 +360,41 @@ def best_subset_solution(tour: np.ndarray, k: int):
     return best_tour
 
 @njit
-def calculate_factorial(n):
-    result = 1
-    for i in range(1, n + 1):
-        result *= i
-    return result
+def _factorial(n):
+    if n == 1:
+        return n
+    else:
+        return n * _factorial(n-1)
 
 @njit
 def generate_permutations(arr: np.ndarray):
-    n = arr.shape[0]
-    factorial = calculate_factorial(n)
-    result = np.empty((factorial, n), dtype=arr.dtype)
-
-    for i in range(factorial):
-        pool = list(arr)
-        for j in range(n, 0, -1):
-            index = i // calculate_factorial(j - 1)
-            result[i, n - j] = pool.pop(index)
-            i -= index * calculate_factorial(j - 1)
-
-    return result
+    d = arr.shape[0]
+    d_fact = _factorial(d)
+    c = np.zeros(d, dtype=np.int32)
+    res = np.zeros(shape=(d_fact, d))
+    counter = 0
+    i = 0
+    res[counter] = arr
+    counter += 1
+    while i < d:
+        if c[i] < i:
+            if i % 2 == 0:
+                arr[0], arr[i] = arr[i], arr[0]
+            else:
+                arr[c[i]], arr[i] = arr[i], arr[c[i]]
+            # Swap has occurred ending the for-loop. Simulate the increment of the for-loop counter
+            c[i] += 1
+            res[counter] = arr
+            counter += 1
+            # Simulate recursive call reaching the base case by bringing setting i to the base case
+            i = 0
+        else:
+            # Calling the func(i+1, A) has ended as the for-loop terminated. 
+            # Reset the state and increment i.
+            c[i] = 0
+            i += 1
+    # Return array of d! rows and d columns (all permutations)
+    return res   
 
 @njit
 def objf_perm(tour: np.ndarray):
@@ -441,14 +466,17 @@ def generate_individual_greedy_reverse():
 
     return individual
 
-
-
 @njit
 def generate_individual_nearest_neighbor():
     # Create an individual choosing always the nearest city , second city is random
+
+    # Create an individual starting from zero
     individual = np.zeros(distanceMatrix.shape[0]).astype(np.int64)
     individual[0] = 0
-    individual[1] = np.random.randint(1, distanceMatrix.shape[0]) # Second city is random
+
+    # Second city is random from the city accessible from the first city 
+    accessible_cities = np.argsort(distanceMatrix[0, :])
+    individual[1] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
 
     not_visited = np.arange(1, distanceMatrix.shape[0])
     not_visited = np.delete(not_visited, np.where(not_visited == individual[1])[0][0])
@@ -460,6 +488,38 @@ def generate_individual_nearest_neighbor():
         individual[ii] = not_visited[nearest_city]
         # Remove the nearest city from the not visited list
         not_visited = np.delete(not_visited, nearest_city)
+
+    return individual
+
+@njit
+def generate_individual_nearest_neighbor_more_index(k: int):
+    # Create an individual choosing always the nearest city , but choosing randomly each k cities
+    k = (distanceMatrix.shape[0] + 1)//k
+
+    # Create an individual starting from zero
+    individual = np.zeros(distanceMatrix.shape[0]).astype(np.int64)
+    individual[0] = 0
+    # Second city is random from the city accessible from the first city
+    accessible_cities = np.argsort(distanceMatrix[0, :])
+    individual[1] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
+
+    not_visited = np.arange(1, distanceMatrix.shape[0])
+    not_visited = np.delete(not_visited, np.where(not_visited == individual[1])[0][0])
+
+    for ii in range(2, distanceMatrix.shape[0]):
+
+        if ii % k == 0:
+            # Select randomly a city from the not visited list
+            nearest_city= np.random.randint(0, not_visited.shape[0])
+        else:
+            # Select the nearest city
+            nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
+
+        # Add the nearest city to the individual
+        individual[ii] = not_visited[nearest_city]
+        # Remove the nearest city from the not visited list
+        not_visited = np.delete(not_visited, nearest_city)
+
 
     return individual
 
@@ -608,8 +668,8 @@ def elimination( joinedPopulation: np.ndarray):
 
         return survivors
     
-
-def elimination_half_half(joinedPopulation: np.ndarray):
+@njit
+def elimination_pro(joinedPopulation: np.ndarray):
 
     # Apply the objective function to each row of the joinedPopulation array
     fvals = objf_pop(joinedPopulation)
@@ -635,9 +695,6 @@ def elimination_half_half(joinedPopulation: np.ndarray):
 # Main 
 if __name__ == "__main__":
 
-    print(generate_permutations(np.array([1,2,3])))
-
-
     # Calculate the time
     start_time = time.time()
     r0123456().optimize(file)
@@ -649,5 +706,5 @@ if __name__ == "__main__":
 # tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 81k)
 # tour200: simple greedy heuristic 39745    (TARGET 35k)    (BEST 38k)
 # tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 150k)
-# tour750: simple greedy heuristic 197541  (TARGET 177k)   (BEST 200k)
-# tour1000: simple greedy heuristic 195848 (TARGET 176k)   (BEST 200k)
+# tour750: simple greedy heuristic 197541  (TARGET 177k)   (BEST 190k)
+# tour1000: simple greedy heuristic 195848 (TARGET 176k)   (BEST 198k)
