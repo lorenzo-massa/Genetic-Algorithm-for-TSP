@@ -4,10 +4,10 @@ import time
 import Utilis
 import matplotlib.pyplot as plt
 import itertools 
+import math
 
 
 def read_from_file(filename):
-    # Read distance matrix from file.
     file = open(filename)
     distanceMatrix = np.loadtxt(file, delimiter=",")
     file.close()
@@ -17,9 +17,9 @@ def read_from_file(filename):
 class TSP:
     """ Parameters """
     def __init__(self, fitness, filename):
-        self.alpha = 0.23                           # Mutation probability
+        self.alpha = 0.3                            # Mutation probability
         self.mutationratios = [7, 1, 1, 15]         # swap, insert, scramble, inversion -> mutation ratio
-        self.lambdaa = 200                          # Population size
+        self.lambdaa = 100                          # Population size
         self.mu = self.lambdaa * 2                  # Offspring size       
         self.k = 3                                  # Tournament selection
         self.numIters = 2000                        # Maximum number of iterations
@@ -45,7 +45,8 @@ class TSP:
         bestSolution = np.zeros(self.numCities - 1)
 
         # TODO CHECK
-        tuning = 2
+        tuning = 3
+        var = 0
 
         startInitialization = time.time()
         self.population = TSP.initialization_mix(self)
@@ -71,15 +72,20 @@ class TSP:
 
             startelemination = time.time()
             if countSameBestSol == 10:
-                tuning += 1
-            if i % 2 == 0:
+                tuning += 3
+            if i % 3 == 0:
                 print("one opt, k: ", tuning*2)
                 joinedPopulation = self.one_opt(joinedPopulation, tuning*2)             # TODO try tuning*3...
-            else:
+            elif i %3 == 1:
                 print("subset, window: ", tuning)
                 if tuning >= 8:
-                    tuning-=1
+                    tuning = 3
                 joinedPopulation = self.local_search_subset(joinedPopulation, tuning)
+            else:
+                if tuning >= 8:
+                    tuning = 3
+                print("subset, window, shuffle: ", tuning)
+                joinedPopulation = self.local_search_shuffle_subset(joinedPopulation, tuning)
 
             self.population = self.elimination(joinedPopulation) # TODO local search sugli individui peggiori o dei 3/4 dei selezionati dopo i migliori
             elimtime = time.time() - startelemination
@@ -96,11 +102,18 @@ class TSP:
             mean.append(np.mean(fvals))
             best.append(np.min(fvals))
 
-            print(f'{i}) {timePassed: .2f}s:\t Mean fitness = {mean[i]: .5f} \t Best fitness = {best[i]: .5f} \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
+            var = TSP.compute_variance(self.population)
+
+            # if i % 10 == 0:
+            #     for f in fvals:
+            #         var = pow(f - mean[-1], 2)
+            #     var = var/self.lambdaa
+
+            print(f'{i}) {timePassed: .2f}s:\t Mean fitness = {mean[i]: .2f} \t Best fitness = {best[i]: .2f}, variance = {var: .2f}, \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
             i=i+1
 
             timeLeft = 300 - timePassed
-            if(i % 50 == 0):
+            if(i % 20 == 0):
                 print("---- Time left: ", int(timeLeft))
             # Termination criteria 1: time limit
             if timeLeft <= 0:
@@ -127,10 +140,28 @@ class TSP:
         print(f'Tot time: {totTime: .2f}s')
         return mean, best, i-1
 
+    def compute_variance(population):
+        num_individuals = len(population)
+        total_distance = 0
+
+        for i in range(num_individuals):
+            for j in range(i + 1, num_individuals):
+                distance = np.linalg.norm(population[i] - population[j])
+                total_distance += distance
+
+        return total_distance / (num_individuals * (num_individuals - 1) / 2)
+
+
     def local_search_subset(self, population, k):
         # Apply the best subset solution to each row of the population array
         for ii in range(population.shape[0]):
-            population[ii, :] = self.improve_subset(population[ii, :], k)
+            population[ii, :] = self.improve_subset_permutations(population[ii, :], k)
+        return population
+    
+    def local_search_shuffle_subset(self, population, k):
+        # Apply the best subset solution to each row of the population array
+        for ii in range(population.shape[0]):
+            population[ii, :] = self.improve_subset_shuffle(population[ii, :], k)
         return population
 
     def initialization_mix(self) -> np.ndarray:
@@ -143,16 +174,16 @@ class TSP:
                 new_individual = self.random_cycle()
             elif i >= 2 and i<4:
                 new_individual = self.random_cycle_inverse()[::-1]
-            elif i >= 4 and i < 6:
+            elif i >= 4 and i < 5:
                 # print("\tgreedy")
                 new_individual = TSP.generate_individual_greedy(self)
-            elif i >= 6 and i < 8:
+            elif i >= 5 and i < 7:
                 # print("\tgreedy inverse")
                 new_individual = TSP.generate_individual_greedy_inverse(self)
-            elif i >= 8 and i < self.lambdaa * 0.1:
+            elif i >= 7 and i < self.lambdaa * 0.2:
                 # print("\tnearest neighbour")
                 new_individual = TSP.generate_individual_nearest_neighbor(self)
-            elif i >= self.lambdaa * 0.1 and i < self.lambdaa * 0.2:
+            elif i >= self.lambdaa * 0.2 and i < self.lambdaa * 0.4:
                 # print("\tnearest neighbour more random indices")
                 new_individual = TSP.generate_individual_random(self)
                 # new_individual = TSP.generate_individual_nearest_neighbor_indices(self, 2)
@@ -249,8 +280,6 @@ class TSP:
         child1[start:end] = parent1[start:end]
         child2[start:end] = parent2[start:end]
 
-        # print("mask", child1[child1 == -1].shape)
-        # print("par2", parent2.shape)
         child1[child1 == -1] = [i for i in parent2 if i not in child1]
         child2[child2 == -1] = [i for i in parent1 if i not in child2]
 
@@ -340,7 +369,7 @@ class TSP:
         perm = np.argsort(fvals)
 
         # Select the best ... individuals
-        n_best = int(self.lambdaa/3)
+        n_best = int(self.lambdaa/2)
         best_survivors = joinedPopulation[perm[0 : n_best], :]
 
         # Select randomly the rest individuals
@@ -404,7 +433,7 @@ class TSP:
         # in case it got to a dead end, return
         return self.random_cycle()
     
-    def improve_subset(self, tour: np.ndarray, k: int):
+    def improve_subset_permutations(self, tour: np.ndarray, k: int):
         tour = tour.astype(np.int64)
 
         # Generate one randdom index
@@ -413,12 +442,10 @@ class TSP:
 
         # Initialize the best tour and objective function value
         best_tour = tour.copy()
-        best_obj = self.objf_perm(tour[ri:ri+k+1])
+        best_obj = self.objf_path(tour[ri:ri+k+1])
 
         # Generate all the possible permutations of the cities from ri to ri+k
         permutations = np.array(list(itertools.permutations(tour[ri:ri+k])))
-
-        # TODO GENERATE PERMUTATIONS WITH NUMBA
         
         # Add tour[ri-1] and tour[ri+k] to the permutations
         permutations = np.concatenate((np.ones((permutations.shape[0], 1)).astype(np.int64) * tour[ri-1], permutations), axis=1)
@@ -433,9 +460,33 @@ class TSP:
             # Update the best tour and objective function value
             best_tour[ri:ri+k] = permutations[best, 1:-1]
         return best_tour
+    
+    def improve_subset_shuffle(self, tour: np.ndarray, k: int):
+        tour = tour.astype(np.int64)
 
-    def objf_perm(self, tour: np.ndarray):
-        
+        # Generate one randdom index
+        ri = np.random.choice(np.arange(1, self.distanceMatrix.shape[0] - 2 - k), 1, replace=False)[0]
+
+        # Initialize the best tour and objective function value
+        old_tour = tour.copy()
+        old_fit = tsp.objf_path(tour[ri:ri+k+1])
+        subset = old_tour[ri:ri+k+1]
+        if old_fit == np.inf:
+            # print("inf")
+            # Random shuffle the cities in the window
+            random.shuffle(subset)
+            new_fit = tsp.objf_path(subset)
+            it=0
+            while new_fit < old_fit or it < math.factorial(len(subset)):
+                # print("still inf, now: ",subset, ", ", it)
+                it+=1
+                random.shuffle(subset)
+                new_fit = tsp.objf_path(subset)
+            old_tour[ri:ri+k+1] = subset
+
+        return old_tour
+
+    def objf_path(self, tour: np.ndarray):
         # Convert float64 indices to integers
         tour = tour.astype(np.int64)
     
@@ -488,20 +539,9 @@ class TSP:
         obj = np.zeros(permutations.shape[0])
     
         for ii in range(permutations.shape[0]):
-            obj[ii] = self.objf_perm(permutations[ii, :])
+            obj[ii] = self.objf_path(permutations[ii, :])
     
         return obj
-     
-    def obj_path(self, tour: np.ndarray):
-        # Convert float64 indices to integers
-        tour = tour.astype(np.int64)
-    
-        # Apply the objective function to each row of the cities array
-        sum_distance = 0
-        for ii in range(tour.shape[0] - 1):
-            # Sum the distances between the cities
-            sum_distance += self.distanceMatrix[tour[ii], tour[ii + 1]]
-        return sum_distance
 
     """
     def generate_individual_greedy_new(self):
@@ -687,13 +727,20 @@ def pop_fitness(population, distanceMatrix):
 def fitness(path, distanceMatrix):
     path = path.astype(int)
     sum = distanceMatrix[0, path[0]] + distanceMatrix[path[len(path) - 1], 0]
-    for i in range(len(path)-1):
+    for i in range(len(path)-1):                                                    # TODO CHECK -1 ?
         sum += distanceMatrix[path[i]][path[i + 1]]
+    return sum
+
+def fitness_subpath(subpath, distanceMatrix):
+    subpath = subpath.astype(int)
+    sum = 0
+    for i in range(len(subpath) - 1):
+        sum += distanceMatrix[subpath[i]][subpath[i + 1]]
     return sum
 
 # --------------------------------------------------------- #
 
-tsp = TSP(fitness, "tour1000.csv")
+tsp = TSP(fitness, "tour500.csv")
 
 mean, best, it = tsp.optimize()
 
@@ -715,6 +762,7 @@ mean, best, it = tsp.optimize()
     # 160392.. (time ..  it ..   pop 200 alpha 0.23  init mix)
     # 159899 (elimination half half, pop 100)
     # 154707 (elimination half, tuning lore TODO check, local search subset + one_opt, pop 200)
+    # 152k  (300 iterazioni, pop 100, elimination half, pmx lore, local search tutte e 3, alpha 0.3)
 
 # tour750: simple greedy heuristic                                                                                                  (TARGET 195k), prof 197541 
     # 204010.. (time ..  it 600   pop 200 alpha 0.23  init mix)
@@ -726,4 +774,5 @@ mean, best, it = tsp.optimize()
     # 209764    init 42s (senza random_cycle) (it 100, pop 100, alpha 0.23, init mix, one_opt più basso (5) elim 0.6s)
     # 203041    init 42s (senza random_cycle) (pop 100, alpha 0.23, init mix, elim basic )
     # 203k      in 200 iterazioni velocissimo con pop 20!!
-    # 196667    in 150 iterazioni, time limit, 300 pop (non sono sicura degli altri param, sicuro random-cycle iniziale)
+    # 196667    in 150 iterazioni, time limit, 300 pop (non sono sicura degli altri param, sicuro random-cycle iniziale, niente nn indici)
+    # 202k      
