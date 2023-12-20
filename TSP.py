@@ -19,23 +19,18 @@ class TSP:
     def __init__(self, fitness, filename):
         self.alpha = 0.23                           # Mutation probability
         self.mutationratios = [7, 1, 1, 15]         # swap, insert, scramble, inversion -> mutation ratio
-        self.lambdaa = 100                          # Population size
+        self.lambdaa = 200                          # Population size
         self.mu = self.lambdaa * 2                  # Offspring size       
         self.k = 3                                  # Tournament selection
         self.numIters = 2000                        # Maximum number of iterations
         self.objf = fitness                         # Objective function
-        self.maxSameBestSol = 100        
+        self.maxSameBestSol = 150        
         self.distanceMatrix = read_from_file(filename)
         self.numCities = self.distanceMatrix.shape[0]         
         self.maxTime = 300                          # Maximum 5 minutes
 
-        """ Initialize the first population """
-        startInitialization = time.time()
-        self.population = TSP.initialization_mix(self)
-        initializationTime = time.time() - startInitialization
-        print("--- Initialization: %s seconds ---" % initializationTime)
+        # ---------------------------------------------------------------------------------------------- #
 
-    
     def optimize(self):
         startTotTime = time.time()
         i=0
@@ -49,6 +44,15 @@ class TSP:
         bestFitness = 0.0
         bestSolution = np.zeros(self.numCities - 1)
 
+        # TODO CHECK
+        tuning = 2
+
+        startInitialization = time.time()
+        self.population = TSP.initialization_mix(self)
+        initializationTime = time.time() - startInitialization
+        print("--- Initialization: %s seconds ---" % initializationTime)
+        timePassed = initializationTime
+    
         terminationCriteria = True    
         while terminationCriteria:
             start = time.time()
@@ -57,31 +61,34 @@ class TSP:
             selectiontime = time.time() - startselection
 
             startcross = time.time()
-            offspring = self.pmx_crossover(selected, self.k)                            # offspring = initial
+            # offspring = self.pmx_crossover(selected, self.k)                            # offspring = initial
+            offspring = self.crossover(selected)               
             crossstime = time.time() - startcross
 
             startmutate = time.time()
             joinedPopulation = np.vstack((self.mutate(offspring), self.population))   # joinedPopulation = Initial polutation + mutated children = lambdaa*2
             mutatetime = time.time() - startmutate
 
-            # if tooStatic:
-            #     new_param =
             startelemination = time.time()
-            if i < 50:
-                # joinedPopulation = self.local_search_best_subset(joinedPopulation, 2)
-                joinedPopulation = self.one_opt(joinedPopulation, 2)
-            elif i >= 50 and i < 100:
-                joinedPopulation = self.one_opt(joinedPopulation, 4)
-            elif i >= 100:
-                joinedPopulation = self.local_search_best_subset(joinedPopulation, 3)
+            if countSameBestSol == 10:
+                tuning += 1
+            if i % 2 == 0:
+                print("one opt, k: ", tuning*2)
+                joinedPopulation = self.one_opt(joinedPopulation, tuning*2)             # TODO try tuning*3...
+            else:
+                print("subset, window: ", tuning)
+                if tuning >= 8:
+                    tuning-=1
+                joinedPopulation = self.local_search_subset(joinedPopulation, tuning)
 
             self.population = self.elimination(joinedPopulation) # TODO local search sugli individui peggiori o dei 3/4 dei selezionati dopo i migliori
             elimtime = time.time() - startelemination
 
             itT = time.time() - start
-            fvals = pop_fitness(self.population, self.distanceMatrix)                   # compute the fitness of rhe population
+            fvals = pop_fitness(self.population, self.distanceMatrix)                   # compute the fitness of the population
 
             # Save progress
+            timePassed += (time.time() - start)
             previousBestFitness = bestFitness
             bestFitness = np.min(fvals)
             bestSolution = self.population[np.argmin(fvals), :]
@@ -89,16 +96,23 @@ class TSP:
             mean.append(np.mean(fvals))
             best.append(np.min(fvals))
 
-            print(f'{i}) {itT: .2f}s:\t Mean fitness = {mean[i]: .5f} \t Best fitness = {best[i]: .5f} \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
+            print(f'{i}) {timePassed: .2f}s:\t Mean fitness = {mean[i]: .5f} \t Best fitness = {best[i]: .5f} \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
             i=i+1
 
-            # Termination criteria 1: number of iterations
-            ((time.time() - startTotTime) < self.maxTime) and (i<=self.numIters)
+            timeLeft = 300 - timePassed
+            if(i % 50 == 0):
+                print("---- Time left: ", int(timeLeft))
+            # Termination criteria 1: time limit
+            if timeLeft <= 0:
+                terminationCriteria = False
+                print("Terminated because of number of time limit!")
+                break
+            # Termination criteria 2: number of iterations
             if i >= self.numIters:
                 terminationCriteria = False
                 print("Terminated because of number of iteration limit!")
                 break
-            # Termination criteria 2: bestFitness doesn't improve for 'maxSameBestSol' times
+            # Termination criteria 3: bestFitness doesn't improve for 'maxSameBestSol' times
             if bestFitness == previousBestFitness and bestFitness != np.inf:
                 countSameBestSol += 1
             else:
@@ -113,11 +127,10 @@ class TSP:
         print(f'Tot time: {totTime: .2f}s')
         return mean, best, i-1
 
-    def local_search_best_subset(self, population, k):
+    def local_search_subset(self, population, k):
         # Apply the best subset solution to each row of the population array
         for ii in range(population.shape[0]):
-            population[ii, :-1] = self.improve_subset(population[ii, :-1], k)
-        
+            population[ii, :] = self.improve_subset(population[ii, :], k)
         return population
 
     def initialization_mix(self) -> np.ndarray:
@@ -126,17 +139,23 @@ class TSP:
 
         for i in range(self.lambdaa):
             print("individual num: ", i)
-            # if i < self.lambdaa*0.01:
-            #     new_individual = TSP.initialitazion_randomCycle(self)
-            if i < self.lambdaa*0.02:
+            if i < 2:
+                new_individual = self.random_cycle()
+            elif i >= 2 and i<4:
+                new_individual = self.random_cycle_inverse()[::-1]
+            elif i >= 4 and i < 6:
                 # print("\tgreedy")
                 new_individual = TSP.generate_individual_greedy(self)
-            elif i >= self.lambdaa * 0.02 and i < self.lambdaa * 0.04:
+            elif i >= 6 and i < 8:
                 # print("\tgreedy inverse")
                 new_individual = TSP.generate_individual_greedy_inverse(self)
-            elif i >= self.lambdaa * 0.04 and i < self.lambdaa * 0.07:
+            elif i >= 8 and i < self.lambdaa * 0.1:
                 # print("\tnearest neighbour")
                 new_individual = TSP.generate_individual_nearest_neighbor(self)
+            elif i >= self.lambdaa * 0.1 and i < self.lambdaa * 0.2:
+                # print("\tnearest neighbour more random indices")
+                new_individual = TSP.generate_individual_random(self)
+                # new_individual = TSP.generate_individual_nearest_neighbor_indices(self, 2)
             else:
                 # print("\tjust random")
                 new_individual = TSP.generate_individual_random(self)
@@ -150,10 +169,7 @@ class TSP:
                 new_individual = TSP.generate_individual_random(self)
                 obj = fitness(new_individual, self.distanceMatrix)
                 max_tries -= 1
-            print("\t\t", obj)
-            if not TSP.tourIsValid(self, new_individual):
-                print("NOT VALID")
-                raise ValueError("Invalid tour during initialization")
+            print("\t", obj)
             population[i, :] = new_individual
         return population
 
@@ -192,7 +208,7 @@ class TSP:
             selected[i, :] = population[randIndices[best], :]
         return selected
 
-    """ Perform recombination operators on the population """
+    """ Perform recombination operators on the population 
     def crossover(self, population, k):
         offspring = np.zeros((self.lambdaa, self.numCities - 1)).astype(int)
         for i in range(self.lambdaa):
@@ -203,6 +219,55 @@ class TSP:
             np.random.shuffle(restPath)
             offspring[i, :] = np.append(subpath, restPath)
         return offspring
+    """
+    
+    def crossover(self, selected: np.ndarray):
+        # Create a matrix of offspring
+        offspring = np.zeros((self.mu, self.distanceMatrix.shape[0] - 1))
+        offspring = offspring.astype(np.int64)
+
+        for ii in range(self.lambdaa):
+            # Select two random parents
+            ri = sorted(np.random.choice(np.arange(1, self.lambdaa), 2, replace=False))
+
+            # Perform crossover
+            offspring[ii, :], offspring[ii + self.lambdaa, :] = self.pmx(selected[ri[0], :], selected[ri[1], :])
+        return offspring
+
+    def pmx(self, parent1, parent2):
+        # Create a child
+        child1 = np.ones(self.distanceMatrix.shape[0]-1).astype(np.int64)
+        child2 = np.ones(self.distanceMatrix.shape[0]-1).astype(np.int64)
+
+        child1 = child1 * -1
+        child2 = child2 * -1
+
+        # select random start and end indices for parent1's subsection
+        start, end = sorted(np.random.choice(np.arange(1, self.distanceMatrix.shape[0]), 2, replace=False)) # why 1, ..?
+
+        # copy parent1's subsection into child
+        child1[start:end] = parent1[start:end]
+        child2[start:end] = parent2[start:end]
+
+        # print("mask", child1[child1 == -1].shape)
+        # print("par2", parent2.shape)
+        child1[child1 == -1] = [i for i in parent2 if i not in child1]
+        child2[child2 == -1] = [i for i in parent1 if i not in child2]
+
+        if not self.tourIsValid(child1):
+            print("start, end: ", start, end)
+            print("parent1: ", parent1)
+            print("parent2: ", parent2)
+            print("child1: ", child1)
+            raise ValueError("Invalid tour during crossover")
+        
+        if not self.tourIsValid(child2):
+            print("start, end: ", start, end)
+            print("parent1: ", parent1)
+            print("parent2: ", parent2)
+            print("child2: ", child2)
+            raise ValueError("Invalid tour during crossover")
+        return child1, child2
 
     def pmx_crossover(self, selected, k):
         offspring = np.zeros((self.lambdaa, self.numCities - 1)).astype(int)
@@ -265,16 +330,7 @@ class TSP:
     def mutation_inversion(self, path):
         cp1, cp2 = sorted(random.sample(range(self.numCities - 1), 2))
         path[cp1:cp2 + 1] = path[cp1:cp2 + 1][::-1]
-        return path
-    
-    # def elimination(self, population):
-    #     fvals = pop_fitness(population, self.distanceMatrix)
-    #     sortedIndices= np.argsort(fvals)
-    #     bestQuarterIndices = sortedIndices[:(self.lambdaa//4)]
-    #     restIndices = np.setdiff1d(np.arange(len(population)), bestQuarterIndices)
-    #     chosenIndices = np.random.choice(restIndices, size= (self.lambdaa - len(sortedIndices)//4), replace=False)
-    #     final_indices = np.concatenate([bestQuarterIndices, chosenIndices])
-    #     return population[final_indices, :]     
+        return path   
 
     def elimination(self, joinedPopulation: np.ndarray):
         # Apply the objective function to each row of the joinedPopulation array
@@ -283,8 +339,8 @@ class TSP:
         # Sort the individuals based on their objective function value
         perm = np.argsort(fvals)
 
-        # Select the best lambda/2 individuals
-        n_best = int(self.lambdaa/2)
+        # Select the best ... individuals
+        n_best = int(self.lambdaa/3)
         best_survivors = joinedPopulation[perm[0 : n_best], :]
 
         # Select randomly the rest individuals
@@ -321,6 +377,33 @@ class TSP:
         # in case it got to a dead end, rerun
         return self.random_cycle()
     
+    def random_cycle_inverse(self, goal=0, frontier=None, expanded=None):
+        path_len = self.distanceMatrix.shape[0]
+        nodes = np.arange(path_len)
+        if (frontier is None) and (expanded is None):
+            # frontier is a stack implemented as a list, using pop() and append().
+            # The items of the stack are (node, goal-to-node-path) tuples.
+            frontier = [(goal, [goal])]
+            expanded = set()
+        while frontier:
+            u, path = frontier.pop()
+            if u == goal:
+                # found a cycle, but it has to contail all the nodes
+                # path_len + 1, because the goal will be added also at the end
+                if len(path) == path_len + 1:
+                    return np.array(path[1:-1])
+            if u in expanded:
+                continue
+            expanded.add(u)
+            # loop through the neighbours at a random order, to result to order in the frontier
+            np.random.shuffle(nodes)
+            for v in nodes:
+                if (v != u) and (self.distanceMatrix[v][u] != np.inf):
+                    # this is a neighbour
+                    frontier.append((v, path + [v]))
+        # in case it got to a dead end, return
+        return self.random_cycle()
+    
     def improve_subset(self, tour: np.ndarray, k: int):
         tour = tour.astype(np.int64)
 
@@ -347,14 +430,8 @@ class TSP:
 
         # Check if the best permutation is better than the original tour
         if objs[best] < best_obj:
-            print("updated")
             # Update the best tour and objective function value
             best_tour[ri:ri+k] = permutations[best, 1:-1]
-
-            # if not tourIsValid(best_tour):
-            #     print("best_tour: ", best_tour)
-            #     raise ValueError("Invalid tour during best subset solution")
-
         return best_tour
 
     def objf_perm(self, tour: np.ndarray):
@@ -415,7 +492,6 @@ class TSP:
     
         return obj
      
-
     def obj_path(self, tour: np.ndarray):
         # Convert float64 indices to integers
         tour = tour.astype(np.int64)
@@ -511,16 +587,45 @@ class TSP:
         # Create an individual choosing always the nearest city , second city is random
         individual = np.zeros(self.numCities-1).astype(np.int64)
         not_visited = np.arange(1,self.numCities)
+
         # first city chosen randomly
         individual[0] = np.random.randint(1, self.numCities) 
         not_visited = np.delete(not_visited, np.where(not_visited == individual[0])[0][0])
-        # print(np.argmin(self.distanceMatrix[individual[0], not_visited]))
+
         for k in range(1, self.numCities-1): 
-            # print(np.argmin(self.distanceMatrix[individual[k-1], not_visited]))
             nearest_city = np.argmin(self.distanceMatrix[individual[k-1], not_visited])
             individual[k] = not_visited[nearest_city]
             not_visited = np.delete(not_visited, nearest_city)
         return individual
+    
+    def generate_individual_nearest_neighbor_indices(self, num):
+        # Create an individual choosing always the nearest city, 'num' indices are chosen random
+        individual = np.zeros(self.numCities-1).astype(np.int64)
+        not_visited = np.arange(1,self.numCities)
+
+        randomIndices = np.random.choice(range(self.numCities-1), size=num, replace=False)
+        for r in randomIndices:
+            individual[r] = np.random.randint(1, self.numCities) 
+            not_visited = np.delete(not_visited, np.where(not_visited == individual[r]))
+
+        # Start from the begininng fill all cities
+        for k in range(self.numCities-1): 
+            if k in randomIndices:
+                continue
+            nearest_city = np.argmin(self.distanceMatrix[individual[k-1], not_visited])
+            individual[k] = not_visited[nearest_city]
+            not_visited = np.delete(not_visited, nearest_city)
+
+        return individual
+    
+    def tourIsCorrect(self, tour):
+        # Check if the tour is correct
+        tour = tour.astype(np.int64)
+        if len(np.unique(tour[:self.distanceMatrix.shape[0]])) != self.distanceMatrix.shape[0]-1:
+            return False
+        else:
+            return True
+
     """
     # MUCH LESS EFFICIENT
     def one_opt_cc(population, k):
@@ -588,35 +693,37 @@ def fitness(path, distanceMatrix):
 
 # --------------------------------------------------------- #
 
-tsp = TSP(fitness, "tour500.csv")
+tsp = TSP(fitness, "tour1000.csv")
 
 mean, best, it = tsp.optimize()
-# plot_graph(mean, best)
 
-# Here: 
 # tour50: simple greedy heuristic                                                                                                   (TARGET 24k)
     # 27134 (time 170 , iter 750 , pop 500,  alpha 0.23, init mix)
     # 28971 uguale a sopra ma valori alti nella one_opt (10,15,20)
-
 # tour100: simple greedy heuristic 81616                                                                                            (TARGET 81k)
     # 81616 (time 78s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 80631 (pop 500, alpha 0.23, mutate also the initial pop, init randomValid, circa 600 ite)
     # 80612 (pop 500, tutto uguale a quella sopra ma con init_mix, 709 ite)
-
 # tour200: simple greedy heuristic                                                                                                  (TARGET 35k)
     # 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 38514        (time   it   pop 300  alpha 0.23  init mix  one_opt alti)
-    #              (time   it   pop 300  alpha 0.23  init mix  one_opt /100,/100*2, /100*5) 
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------------------ #
 
 # tour500: simple greedy heuristic                                                                                                  (TARGET 141k)
     # 162248 (time 79  it 344  pop 100 alpha 0.1  init mix)
     # 160392.. (time ..  it ..   pop 200 alpha 0.23  init mix)
     # 159899 (elimination half half, pop 100)
+    # 154707 (elimination half, tuning lore TODO check, local search subset + one_opt, pop 200)
 
 # tour750: simple greedy heuristic                                                                                                  (TARGET 195k), prof 197541 
     # 204010.. (time ..  it 600   pop 200 alpha 0.23  init mix)
+    # 158k, 197k         (elimination half, tuning lore TODO check, local search subset + one_opt, pop 200)
+    # 195k               (uguale a sopra ma random_cycle iniziale)
 
 # tour1000: simple greedy heuristic                                                                                                 (TARGET 193k), prof 195848
     # 209884    init 126s (senza random_cycle) (it 100, pop 300, alpha 0.23, init mix, one_opt troppo alto elim sempre 1.15s)
     # 209764    init 42s (senza random_cycle) (it 100, pop 100, alpha 0.23, init mix, one_opt più basso (5) elim 0.6s)
-    # 211041    init 42s (senza random_cycle) (pop 100, alpha 0.23, init mix, elim basic )
+    # 203041    init 42s (senza random_cycle) (pop 100, alpha 0.23, init mix, elim basic )
+    # 203k      in 200 iterazioni velocissimo con pop 20!!
+    # 196667    in 150 iterazioni, time limit, 300 pop (non sono sicura degli altri param, sicuro random-cycle iniziale)
