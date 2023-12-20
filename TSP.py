@@ -3,6 +3,7 @@ import random
 import time
 import Utilis
 import matplotlib.pyplot as plt
+import itertools 
 
 
 def read_from_file(filename):
@@ -33,6 +34,91 @@ class TSP:
         self.population = TSP.initialization_mix(self)
         initializationTime = time.time() - startInitialization
         print("--- Initialization: %s seconds ---" % initializationTime)
+
+    
+    def optimize(self):
+        startTotTime = time.time()
+        i=0
+        mean = []
+        best = []
+        bestSolutions = []
+        
+        # Termination criteria
+        previousBestFitness = 0
+        countSameBestSol = 0
+        bestFitness = 0.0
+        bestSolution = np.zeros(self.numCities - 1)
+
+        terminationCriteria = True    
+        while terminationCriteria:
+            start = time.time()
+            startselection = time.time()
+            selected = self.selection(self.population, self.k)                          # selected = initial*2
+            selectiontime = time.time() - startselection
+
+            startcross = time.time()
+            offspring = self.pmx_crossover(selected, self.k)                            # offspring = initial
+            crossstime = time.time() - startcross
+
+            startmutate = time.time()
+            joinedPopulation = np.vstack((self.mutate(offspring), self.population))   # joinedPopulation = Initial polutation + mutated children = lambdaa*2
+            mutatetime = time.time() - startmutate
+
+            # if tooStatic:
+            #     new_param =
+            startelemination = time.time()
+            if i < 50:
+                # joinedPopulation = self.local_search_best_subset(joinedPopulation, 2)
+                joinedPopulation = self.one_opt(joinedPopulation, 2)
+            elif i >= 50 and i < 100:
+                joinedPopulation = self.one_opt(joinedPopulation, 4)
+            elif i >= 100:
+                joinedPopulation = self.local_search_best_subset(joinedPopulation, 3)
+
+            self.population = self.elimination(joinedPopulation) # TODO local search sugli individui peggiori o dei 3/4 dei selezionati dopo i migliori
+            elimtime = time.time() - startelemination
+
+            itT = time.time() - start
+            fvals = pop_fitness(self.population, self.distanceMatrix)                   # compute the fitness of rhe population
+
+            # Save progress
+            previousBestFitness = bestFitness
+            bestFitness = np.min(fvals)
+            bestSolution = self.population[np.argmin(fvals), :]
+            bestSolutions.append(bestSolution)
+            mean.append(np.mean(fvals))
+            best.append(np.min(fvals))
+
+            print(f'{i}) {itT: .2f}s:\t Mean fitness = {mean[i]: .5f} \t Best fitness = {best[i]: .5f} \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
+            i=i+1
+
+            # Termination criteria 1: number of iterations
+            ((time.time() - startTotTime) < self.maxTime) and (i<=self.numIters)
+            if i >= self.numIters:
+                terminationCriteria = False
+                print("Terminated because of number of iteration limit!")
+                break
+            # Termination criteria 2: bestFitness doesn't improve for 'maxSameBestSol' times
+            if bestFitness == previousBestFitness and bestFitness != np.inf:
+                countSameBestSol += 1
+            else:
+                countSameBestSol = 0
+            if countSameBestSol >= self.maxSameBestSol:
+                terminationCriteria = False
+                print("Terminated because of %d same best solutions!"%countSameBestSol)
+                break
+
+        print('Doneeee')
+        totTime = time.time() - startTotTime
+        print(f'Tot time: {totTime: .2f}s')
+        return mean, best, i-1
+
+    def local_search_best_subset(self, population, k):
+        # Apply the best subset solution to each row of the population array
+        for ii in range(population.shape[0]):
+            population[ii, :-1] = self.improve_subset(population[ii, :-1], k)
+        
+        return population
 
     def initialization_mix(self) -> np.ndarray:
         # Create a matrix of random individuals
@@ -93,86 +179,6 @@ class TSP:
         for i in range(self.lambdaa):
             self.population[i, :] = self.random_cycle()
 
-    def optimize(self):
-        startTotTime = time.time()
-        i=0
-        mean = []
-        best = []
-        bestSolutions = []
-        
-        # Termination criteria
-        previousBestFitness = 0
-        countSameBestSol = 0
-        bestFitness = 0.0
-        bestSolution = np.zeros(self.numCities - 1)
-
-        terminationCriteria = True    
-        while terminationCriteria:
-            start = time.time()
-            startselection = time.time()
-            selected = self.selection(self.population, self.k)                          # selected = initial*2
-            selectiontime = time.time() - startselection
-
-            startcross = time.time()
-            offspring = self.pmx_crossover(selected, self.k)                            # offspring = initial
-            crossstime = time.time() - startcross
-
-            startmutate = time.time()
-            joinedPopulation = np.vstack((self.mutate(offspring), self.population))   # joinedPopulation = Initial polutation + mutated children = lambdaa*2
-            # joinedPopulation = np.vstack((self.mutate(offspring), self.mutate(self.population))) 
-            mutatetime = time.time() - startmutate
-
-            startelemination = time.time()
-            # self.population = self.elimination(joinedPopulation, self.lambdaa)          
-            # Elimination                                                               # population = joinedPopulation - eliminated = lambdaa
-            if i < 10:
-                self.population = self.elimination(joinedPopulation)
-            elif i >= 10 and i < 200:
-                joinedPopulation = self.one_opt(joinedPopulation, 2)
-                self.population = self.elimination(joinedPopulation)
-            elif i >= 200 and i < 300:
-                joinedPopulation = self.one_opt(joinedPopulation, 5)     # int(self.numCities/100*2)
-                self.population = self.elimination(joinedPopulation)
-            else:
-                joinedPopulation = self.one_opt(joinedPopulation, 5)
-                self.population = self.elimination(joinedPopulation)
-            elimtime = time.time() - startelemination
-
-            itT = time.time() - start
-            fvals = pop_fitness(self.population, self.distanceMatrix)                   # compute the fitness of rhe population
-
-            # Save progress
-            previousBestFitness = bestFitness
-            bestFitness = np.min(fvals)
-            bestSolution = self.population[np.argmin(fvals), :]
-            bestSolutions.append(bestSolution)
-            mean.append(np.mean(fvals))
-            best.append(np.min(fvals))
-
-            print(f'{i}) {itT: .2f}s:\t Mean fitness = {mean[i]: .5f} \t Best fitness = {best[i]: .5f} \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
-            i=i+1
-
-            # Termination criteria 1: number of iterations
-            ((time.time() - startTotTime) < self.maxTime) and (i<=self.numIters)
-            if i >= self.numIters:
-                terminationCriteria = False
-                print("Terminated because of number of iteration limit!")
-                break
-            # Termination criteria 2: bestFitness doesn't improve for 'maxSameBestSol' times
-            if bestFitness == previousBestFitness and bestFitness != np.inf:
-                countSameBestSol += 1
-            else:
-                countSameBestSol = 0
-            if countSameBestSol >= self.maxSameBestSol:
-                terminationCriteria = False
-                print("Terminated because of %d same best solutions!"%countSameBestSol)
-                break
-
-        print('Doneeee')
-        totTime = time.time() - startTotTime
-        print(f'Tot time: {totTime: .2f}s')
-        return mean, best, i-1
-
     """ Perform k-tournament selection to select pairs of parents. """
     def selection(self, population, k):
         # prepare future selected population
@@ -184,11 +190,6 @@ class TSP:
             best = np.argmin(pop_fitness(population[randIndices, :], self.distanceMatrix))
 
             selected[i, :] = population[randIndices[best], :]
-
-            # TODO consider this part:
-            # if not self.tourIsValid(selected[i, :-1]):
-            #     print("selected: ", selected[i, :-1])
-            #     raise ValueError("Invalid tour during selection")
         return selected
 
     """ Perform recombination operators on the population """
@@ -266,16 +267,32 @@ class TSP:
         path[cp1:cp2 + 1] = path[cp1:cp2 + 1][::-1]
         return path
     
-    def elimination(self, population):
-        fvals = pop_fitness(population, self.distanceMatrix)
-        sortedIndices= np.argsort(fvals)
-        
-        bestQuarterIndices = sortedIndices[:(self.lambdaa//4)]
-        restIndices = np.setdiff1d(np.arange(len(population)), bestQuarterIndices)
-        chosenIndices = np.random.choice(restIndices, size= (self.lambdaa - len(sortedIndices)//4), replace=False)
+    # def elimination(self, population):
+    #     fvals = pop_fitness(population, self.distanceMatrix)
+    #     sortedIndices= np.argsort(fvals)
+    #     bestQuarterIndices = sortedIndices[:(self.lambdaa//4)]
+    #     restIndices = np.setdiff1d(np.arange(len(population)), bestQuarterIndices)
+    #     chosenIndices = np.random.choice(restIndices, size= (self.lambdaa - len(sortedIndices)//4), replace=False)
+    #     final_indices = np.concatenate([bestQuarterIndices, chosenIndices])
+    #     return population[final_indices, :]     
 
-        final_indices = np.concatenate([bestQuarterIndices, chosenIndices])
-        return population[final_indices, :]     
+    def elimination(self, joinedPopulation: np.ndarray):
+        # Apply the objective function to each row of the joinedPopulation array
+        fvals = pop_fitness(joinedPopulation, self.distanceMatrix)
+
+        # Sort the individuals based on their objective function value
+        perm = np.argsort(fvals)
+
+        # Select the best lambda/2 individuals
+        n_best = int(self.lambdaa/2)
+        best_survivors = joinedPopulation[perm[0 : n_best], :]
+
+        # Select randomly the rest individuals
+        random_survivors = joinedPopulation[np.random.choice(perm[n_best:], self.lambdaa - n_best, replace=False), :]
+
+        # Concatenate the best and random survivors
+        survivors = np.vstack((best_survivors, random_survivors))
+        return survivors
 
     def random_cycle(self, goal=0, frontier=None, expanded=None):
         path_len = self.distanceMatrix.shape[0]
@@ -304,6 +321,112 @@ class TSP:
         # in case it got to a dead end, rerun
         return self.random_cycle()
     
+    def improve_subset(self, tour: np.ndarray, k: int):
+        tour = tour.astype(np.int64)
+
+        # Generate one randdom index
+        ri = np.random.choice(np.arange(1, self.distanceMatrix.shape[0] - 2 - k), 1, replace=False)[0]
+        # Find the best subset solution from ri to ri+k using brute force
+
+        # Initialize the best tour and objective function value
+        best_tour = tour.copy()
+        best_obj = self.objf_perm(tour[ri:ri+k+1])
+
+        # Generate all the possible permutations of the cities from ri to ri+k
+        permutations = np.array(list(itertools.permutations(tour[ri:ri+k])))
+
+        # TODO GENERATE PERMUTATIONS WITH NUMBA
+        
+        # Add tour[ri-1] and tour[ri+k] to the permutations
+        permutations = np.concatenate((np.ones((permutations.shape[0], 1)).astype(np.int64) * tour[ri-1], permutations), axis=1)
+        permutations = np.concatenate((permutations, np.ones((permutations.shape[0], 1)).astype(np.int64) * tour[ri+k]), axis=1)
+
+        # Evaluate the objective function for each permutation
+        objs = self.objf_permutation(permutations)
+        best = np.argmin(objs)
+
+        # Check if the best permutation is better than the original tour
+        if objs[best] < best_obj:
+            print("updated")
+            # Update the best tour and objective function value
+            best_tour[ri:ri+k] = permutations[best, 1:-1]
+
+            # if not tourIsValid(best_tour):
+            #     print("best_tour: ", best_tour)
+            #     raise ValueError("Invalid tour during best subset solution")
+
+        return best_tour
+
+    def objf_perm(self, tour: np.ndarray):
+        
+        # Convert float64 indices to integers
+        tour = tour.astype(np.int64)
+    
+        # Apply the objective function to each row of the cities array
+        sum_distance = 0
+    
+        for ii in range(tour.shape[0] - 1):
+            # Sum the distances between the cities
+            sum_distance += self.distanceMatrix[tour[ii], tour[ii + 1]]
+    
+        return sum_distance
+
+    """
+    #TODO try with DFS
+    def improve_subset(self, tour: np.ndarray, k: int):
+        tour = tour.astype(np.int64)
+
+        # Generate one randdom index
+        ri = np.random.choice(np.arange(1, self.distanceMatrix.shape[0] - 1 - k), 1, replace=False)[0]  
+        # Initialize the best tour and objective function value
+        old_tour = tour.copy()
+        old_obj = self.obj_path(tour[ri:ri+k+1]) # +1 to consider "the end" of the subset 
+        # (which is the first element in the individual after the subset)
+
+        # Generate all the possible permutations of the cities from ri to ri+k
+        permutations = np.array(list(itertools.permutations(tour[ri:ri+k])))
+
+        # Add tour[ri-1] and tour[ri+k] to the permutations
+        permutations = np.concatenate((np.ones((permutations.shape[0], 1)).astype(np.int64) * tour[ri-1], permutations), axis=1)
+        permutations = np.concatenate((permutations, np.ones((permutations.shape[0], 1)).astype(np.int64) * tour[ri+k]), axis=1)
+
+        print("permutations shape:", permutations.shape)
+        print("tour[ri+k] shape:", np.ones((permutations.shape[0], 1)).astype(np.int64).shape)
+
+        # Evaluate the objective function for each permutation
+        objs = pop_fitness(permutations, self.distanceMatrix)
+        print(objs.shape)
+        best = np.argmin(objs)  
+        # TODO prendere direttamente il min!
+
+        # Check if the best permutation is better than the original tour
+        if objs[best] < old_obj:
+            # Update the best tour and objective function value
+            old_tour[ri:ri+k] = permutations[best, 1:-1]
+        return old_tour
+    """
+
+    def objf_permutation(self, permutations: np.ndarray):
+        # Apply the objective function to each row of the permutations array
+        obj = np.zeros(permutations.shape[0])
+    
+        for ii in range(permutations.shape[0]):
+            obj[ii] = self.objf_perm(permutations[ii, :])
+    
+        return obj
+     
+
+    def obj_path(self, tour: np.ndarray):
+        # Convert float64 indices to integers
+        tour = tour.astype(np.int64)
+    
+        # Apply the objective function to each row of the cities array
+        sum_distance = 0
+        for ii in range(tour.shape[0] - 1):
+            # Sum the distances between the cities
+            sum_distance += self.distanceMatrix[tour[ii], tour[ii + 1]]
+        return sum_distance
+
     """
     def generate_individual_greedy_new(self):
         # Create an individual choosing always the nearest city
@@ -398,7 +521,7 @@ class TSP:
             individual[k] = not_visited[nearest_city]
             not_visited = np.delete(not_visited, nearest_city)
         return individual
-
+    """
     # MUCH LESS EFFICIENT
     def one_opt_cc(population, k):
         new_population = np.copy(population)
@@ -424,7 +547,8 @@ class TSP:
                             # Revert the reverse if it doesn't improve the fitness
                             path[j:l] = np.flip(path[j:l])
         return new_population
-
+    """
+        
     def one_opt(self, population, k):
         if k < 1 or k > population.shape[1] - 1:
             raise ValueError("k must be between 2 and n-1")
@@ -434,7 +558,7 @@ class TSP:
             best_obj = fitness(best_tour, self.distanceMatrix)
 
             # Select k random indices
-            k_list = sorted(np.random.choice(np.arange(1, self.numCities - 2), k, replace=False)) # k could be 1...48
+            k_list = sorted(np.random.choice(np.arange(1, population.shape[1] - 2), k, replace=False)) 
             for ri in k_list:
                 # Swap the ri-th and ri+1-th cities
                 tour = population[i, :].copy()
