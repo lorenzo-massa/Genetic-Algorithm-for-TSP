@@ -4,198 +4,362 @@ import matplotlib.pyplot as plt
 import time
 from numba import njit
 import itertools
+from multiprocessing import Pool
+from concurrent.futures import ProcessPoolExecutor
+ 
 
 # Modify the class name to match your student number.
-class r0123456:
-    def __init__(self):
-        self.reporter = Reporter.Reporter(self.__class__.__name__)
+reporter = Reporter.Reporter("r0123456")
 
-    # The evolutionary algorithm's main loop
-    def optimize(self, filename, verbose=False):
-        # Read distance matrix from file.
-        #file = open(filename)
-        #distanceMatrix = np.loadtxt(file, delimiter=",")
-        #file.close()
+# The evolutionary algorithm's main loop
+def optimize(distanceMatrix, verbose=False):
 
-        # Your code here.    
 
-        # Initialize the population
-        population = initialize()
+    # Read distance matrix from file.
+    #file = open(filename)
+    #distanceMatrix = np.loadtxt(file, delimiter=",")
+    #file.close()
 
-        # Try to improve the initial population with local search
-        #population = TSP.two_opt(population, 5)
-        iteration = 0
+    # Your code here.    
 
-        # Store the progress
-        meanObjective = 0.0
-        bestObjective = 0.0
-        bestSolution = np.zeros(distanceMatrix.shape[0] + 1)
+    # Initialize the population
+    population = initialize()
 
-        meanObjectiveList = []
-        bestObjectiveList = []
-        bestSolutionList = []
-        alphaMeanList = []
-        variancePopulationList = []
+    # Try to improve the initial population with local search
+    #population = TSP.two_opt(population, 5)
+    iteration = 0
 
-        # Termination criteria
-        previousBestObjective = 0
-        differentBestSolutions = 0
+    # Store the progress
+    meanObjective = 0.0
+    bestObjective = 0.0
+    bestSolution = np.zeros(n_cities + 1)
+
+    meanObjectiveList = []
+    bestObjectiveList = []
+    bestSolutionList = []
+    alphaMeanList = []
+    variancePopulationList = []
+
+    # Termination criteria
+    previousBestObjective = 0
+    differentBestSolutions = 0
+
+    # Local search after initialization
+    #population = local_search_best_subset(population, 3)
+
+    tuning = 2
+
+    yourConvergenceTestsHere = True
+    while yourConvergenceTestsHere:
+        # meanObjective = 0.0
+        # bestObjective = 0.0
+        # bestSolution = np.array([1,2,3,4,5])
+
+        # Your code here.
+
+        # Perform the evolutionary operators
+
+        # Selection
+        selected = selection(population,3)
+
+        # Crossover
+        offspring = crossover(selected)
+
+        # Join the population and the offspring
+        joinedPopulation = np.vstack((population, offspring))
+
+        # Mutation on the joined population without the 10 best solutions
+        sorted_population = joinedPopulation[np.argsort(objf_pop(joinedPopulation))]
+        joinedPopulation = np.vstack((sorted_population[:10, :], mutation(sorted_population[10:, :])))
+
+        # Local search
+        if differentBestSolutions > 0 and differentBestSolutions % 8 == 0:
+            tuning += 1
+
+        if tuning > 7:
+            tuning = 3
+            
+        if iteration % 2 == 0:                          # Better not to do to all the population ??
+            joinedPopulation = one_opt(joinedPopulation, tuning*2)
+        else:
+            joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
+
+
+        # Elimination
+        population = elimination_pro(joinedPopulation)
+
+
+        # Compute progress
+        fvals = objf_pop(population)                    # Compute the objective function value for each individual
+        meanObjective = np.mean(fvals)                  # Compute the mean objective value of the population
+        previousBestObjective = bestObjective           # Store the previous best objective
+        bestObjective = np.min(fvals)                   # Store the new best objective
+        bestSolution = population[np.argmin(fvals), :]  # Store the new best solution
+
+        # Mean of alpha values
+        alphaMean = np.mean(population[:, -1])
+
+        # Adapt alpha value based on the variance of the population
+        # variancePopulation = variance(population)
+        # adapt_alpha(population)
+
+        # Save progress
+        meanObjectiveList.append(meanObjective)
+        bestObjectiveList.append(bestObjective)
+        bestSolutionList.append(bestSolution)
+        alphaMeanList.append(alphaMean)
+        variancePopulationList.append(variancePopulation)
+
+        iteration += 1
+
+        # Check for termination
+        if iteration >= max_iterations:
+            yourConvergenceTestsHere = False
+
+        if bestObjective == previousBestObjective and bestObjective != np.inf:
+            differentBestSolutions += 1
+        else:
+            differentBestSolutions = 0
+
+        if differentBestSolutions >= MAX_DIFFERENT_BEST_SOLUTIONS:
+            yourConvergenceTestsHere = False
+            print(
+                "Terminated because of %d equal best solutions"
+                % differentBestSolutions
+            )
+
+        # Call the reporter with:
+        #  - the mean objective function value of the population
+        #  - the best objective function value of the population
+        #  - a 1D numpy array in the cycle notation containing the best solution
+        #    with city numbering starting from 0
+        timeLeft = reporter.report(meanObjective, bestObjective, bestSolution)
+
+        # Print progress
+        if iteration % 5 == 0 and verbose == True:
+            print(
+                "Iteration: %d, Mean: %f, Best: %f, Alpha: %f, Tuning: %d, Diff. Best: %d, Variance: %f, Time left: %f"
+                % (iteration, meanObjective, bestObjective, alphaMean, tuning, differentBestSolutions, variancePopulation, timeLeft)
+            )
+
+        if timeLeft < 0:
+            yourConvergenceTestsHere = False
+            print("Terminated because of time limit")
+            break
+
+    # Your code here.
+        
+    if verbose == True:
+
+        # Plot results: Mean and best in a figure, alpha and variance in another figure
+        t = np.arange(0, iteration, 1)
+        fig, axs = plt.subplots(2, 2)
+
+        # Set the dimensions of the figure
+        fig.set_figheight(10)
+        fig.set_figwidth(15)
+
+        axs[0, 0].plot(t, meanObjectiveList, color="skyblue")
+        axs[0, 0].plot(t, bestObjectiveList,  color="lightcoral")
+        axs[0, 0].set_title('Mean and best objective function value')
+        axs[0, 0].set(xlabel='Iteration', ylabel='Objective function value')
+        axs[0, 0].legend(['Mean', 'Best'], loc='upper right')
+
+        axs[0, 1].plot(t, alphaMeanList)
+        axs[0, 1].set_title('Mean of alpha values')
+        axs[0, 1].set(xlabel='Iteration', ylabel='Alpha value')
+
+        axs[1, 0].plot(t, variancePopulationList)
+        axs[1, 0].set_title('Variance of the population')
+        axs[1, 0].set(xlabel='Iteration', ylabel='Variance')
+
+        #axs[1, 1].plot(t, alphaMeanList)
+        #axs[1, 1].plot(t, variancePopulationList)
+        axs[1, 1].set_title('x')
+        axs[1, 1].set(xlabel='Iteration', ylabel='x')
+        axs[1, 1].legend(['x', 'x'], loc='upper right')
+
+        plt.show()
+
+        # Print the best solution
+        print("Best solution: ", bestSolutionList[-1][:-1], " with objective function value: ", bestObjectiveList[-1])
+
+    return bestSolutionList[-1][:-1]   , bestObjectiveList[-1]
+ 
+
+
+def optimize_island(distanceMatrix, verbose=False):
+
+    # Initialize the n_population populations  
+    populations = []
+    for i in range(n_population):
+        populations.append(initialize(alphaList[i]))
 
         # Local search after initialization
-        #population = local_search_best_subset(population, 3)
+        populations[i] = one_opt(populations[i], 2+i)
+    
 
-        tuning = 2
+    # Store the progress of each population
+    meanObjectiveList = [[] for i in range(n_population)]
+    bestObjectiveList = [[] for i in range(n_population)]
+    bestSolutionList = [[] for i in range(n_population)]
+    alphaMeanList = [[] for i in range(n_population)]
 
-        yourConvergenceTestsHere = True
-        while yourConvergenceTestsHere:
-            # meanObjective = 0.0
-            # bestObjective = 0.0
-            # bestSolution = np.array([1,2,3,4,5])
+    # Termination criteria
+    differentBestSolutions = [0] * n_population
 
-            # Your code here.
+    # Tuning parameter for the local search
+    tuning = [2] * n_population
 
-            # Perform the evolutionary operators
+    # Set up the loop
+    iteration = [0] * n_population
+    yourConvergenceTestsHere = True
+
+    while yourConvergenceTestsHere:
+
+        # For each population
+        for i in range(n_population):
 
             # Selection
-            selected = selection(population,3)
+            selected = selection(populations[i],k_for_selection[i])
 
             # Crossover
             offspring = crossover(selected)
 
             # Join the population and the offspring
-            joinedPopulation = np.vstack((population, offspring))
+            joinedPopulation = np.vstack((populations[i], offspring))
 
             # Mutation on the joined population without the 10 best solutions
             sorted_population = joinedPopulation[np.argsort(objf_pop(joinedPopulation))]
-            joinedPopulation = np.vstack((sorted_population[:10, :], mutation(sorted_population[10:, :])))
+            joinedPopulation = np.vstack((sorted_population[:5, :], mutation(sorted_population[5:, :])))
 
             # Local search
-            if differentBestSolutions > 0 and differentBestSolutions % 8 == 0:
-                tuning += 1
+            if differentBestSolutions[i] > 0 and differentBestSolutions[i] % 8 == 0:
+                tuning[i] += 1
 
-            if tuning > 7:
-                tuning = 3
+            if tuning[i] > 6:
+                tuning[i] = 3
                 
-            if iteration % 2 == 0:                          # Better not to do to all the population ??
-                joinedPopulation = one_opt(joinedPopulation, tuning*2)
+            if iteration[i] % 2 == 0:                          # Better not to do to all the population ??
+                joinedPopulation = one_opt(joinedPopulation, tuning[i]*(1+i))
             else:
-                joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
-
+                joinedPopulation = local_search_best_subset(joinedPopulation, tuning[i])
 
             # Elimination
-            population = elimination_pro(joinedPopulation)
+            populations[i] = elimination_pro(joinedPopulation)
 
 
-            # Compute progress
-            fvals = objf_pop(population)                    # Compute the objective function value for each individual
-            meanObjective = np.mean(fvals)                  # Compute the mean objective value of the population
-            previousBestObjective = bestObjective           # Store the previous best objective
-            bestObjective = np.min(fvals)                   # Store the new best objective
-            bestSolution = population[np.argmin(fvals), :]  # Store the new best solution
+            # Compute and save progress
+            fvals = objf_pop(populations[i])                                    # Compute the objective function value for each individual
+            meanObjectiveList[i].append(np.mean(fvals))                         # Compute the mean objective value of the population           
+                                                                                # Store the previous best objective
+            bestObjectiveList[i].append(np.min(fvals))                          # Store the new best objective
+            bestSolutionList[i].append(populations[i][np.argmin(fvals), :])     # Store the new best solution
+            alphaMeanList[i].append(np.mean(populations[i][:, -1]))             # Mean of alpha values
 
-            # Mean of alpha values
-            alphaMean = np.mean(population[:, -1])
-
-            # Adapt alpha value based on the variance of the population
-            # variancePopulation = variance(population)
-            # adapt_alpha(population)
-
-            # Save progress
-            meanObjectiveList.append(meanObjective)
-            bestObjectiveList.append(bestObjective)
-            bestSolutionList.append(bestSolution)
-            alphaMeanList.append(alphaMean)
-            variancePopulationList.append(variancePopulation)
-
-            iteration += 1
-
-            # Check for termination
-            if iteration >= max_iterations:
-                yourConvergenceTestsHere = False
-
-            if bestObjective == previousBestObjective and bestObjective != np.inf:
-                differentBestSolutions += 1
+            if iteration[i]> 1 and bestObjectiveList[i][-1] == bestObjectiveList[i][-2] and bestObjectiveList[i][-1] != np.inf:
+                differentBestSolutions[i] += 1
             else:
-                differentBestSolutions = 0
+                differentBestSolutions[i] = 0
 
-            if differentBestSolutions >= MAX_DIFFERENT_BEST_SOLUTIONS:
-                yourConvergenceTestsHere = False
-                print(
-                    "Terminated because of %d equal best solutions"
-                    % differentBestSolutions
-                )
+            iteration[i] += 1
 
-            # Call the reporter with:
-            #  - the mean objective function value of the population
-            #  - the best objective function value of the population
-            #  - a 1D numpy array in the cycle notation containing the best solution
-            #    with city numbering starting from 0
-            timeLeft = self.reporter.report(meanObjective, bestObjective, bestSolution)
 
-            # Print progress
-            if iteration % 5 == 0 and verbose == True:
-                print(
-                    "Iteration: %d, Mean: %f, Best: %f, Alpha: %f, Tuning: %d, Diff. Best: %d, Variance: %f, Time left: %f"
-                    % (iteration, meanObjective, bestObjective, alphaMean, tuning, differentBestSolutions, variancePopulation, timeLeft)
-                )
+        # Check for termination
+        if max(iteration) >= max_iterations:
+            yourConvergenceTestsHere = False
 
-            if timeLeft < 0:
-                yourConvergenceTestsHere = False
-                print("Terminated because of time limit")
-                break
+        if max(differentBestSolutions) >= MAX_DIFFERENT_BEST_SOLUTIONS:
+            yourConvergenceTestsHere = False
+            print(
+                "Terminated because of %d equal best solutions"
+                % max(differentBestSolutions)
+            )
 
-        # Your code here.
-            
-        if verbose == True:
+        # Find the best solution among the n_population populations
+        bestSolution = bestSolutionList[0][-1][:-1]
+        bestObjective = bestObjectiveList[0][-1]
+        meanObjective = meanObjectiveList[0][-1]
+                
+        for i in range(1,n_population):
+            if bestObjectiveList[i][-1] < bestObjective:
+                bestObjective = bestObjectiveList[i][-1]
+                bestSolution = bestSolutionList[i][-1][:-1]
+                meanObjective = meanObjectiveList[i][-1]
 
-            # Plot results: Mean and best in a figure, alpha and variance in another figure
-            t = np.arange(0, iteration, 1)
-            fig, axs = plt.subplots(2, 2)
+        # Call the reporter with:
+        #  - the mean objective function value of the population
+        #  - the best objective function value of the population
+        #  - a 1D numpy array in the cycle notation containing the best solution
+        #    with city numbering starting from 0
+        timeLeft = reporter.report(meanObjective, bestObjective, bestSolution)
 
-            # Set the dimensions of the figure
-            fig.set_figheight(10)
-            fig.set_figwidth(15)
+        # Print progress
+        if max(iteration) % 5 == 0 and verbose == True:
+            print(
+                "Iteration: %d, Mean: %f, Best: %f, Time left: %f, Diff Best: %d"
+                % (max(iteration), meanObjective, bestObjective, timeLeft, max(differentBestSolutions))
+            )
 
-            axs[0, 0].plot(t, meanObjectiveList, color="skyblue")
-            axs[0, 0].plot(t, bestObjectiveList,  color="lightcoral")
-            axs[0, 0].set_title('Mean and best objective function value')
-            axs[0, 0].set(xlabel='Iteration', ylabel='Objective function value')
-            axs[0, 0].legend(['Mean', 'Best'], loc='upper right')
+        if timeLeft < 0:
+            yourConvergenceTestsHere = False
+            print("Terminated because of time limit")
+            break
 
-            axs[0, 1].plot(t, alphaMeanList)
-            axs[0, 1].set_title('Mean of alpha values')
-            axs[0, 1].set(xlabel='Iteration', ylabel='Alpha value')
+        if iteration[0] % iterationIneraction == 0:
+            # Join the n_population populations
+            completePopulation = np.vstack(populations)
+            # Shuffle the complete population
+            np.random.shuffle(completePopulation)
+            # Create n_population from the complete population
+            for i in range(n_population):
+                populations[i] = completePopulation[i*lambda_:(i+1)*lambda_, :]
 
-            axs[1, 0].plot(t, variancePopulationList)
-            axs[1, 0].set_title('Variance of the population')
-            axs[1, 0].set(xlabel='Iteration', ylabel='Variance')
+    # Plot the mean and the best obj comparing the n_population populations
+    t = [np.arange(0, iteration[i], 1) for i in range(n_population)]
 
-            #axs[1, 1].plot(t, alphaMeanList)
-            #axs[1, 1].plot(t, variancePopulationList)
-            axs[1, 1].set_title('x')
-            axs[1, 1].set(xlabel='Iteration', ylabel='x')
-            axs[1, 1].legend(['x', 'x'], loc='upper right')
+    fig, axs = plt.subplots(1, 2)
 
-            plt.show()
+    # Set the dimensions of the figure
+    fig.set_figheight(10)
+    fig.set_figwidth(15)
 
-        # Print the best solution
-        print("Best solution: ", bestSolutionList[-1][:-1], " with objective function value: ", bestObjectiveList[-1])
+    for i in range(n_population):
+        #axs[0].plot(t[i], meanObjectiveList[i])
+        axs[0].plot(t[i], bestObjectiveList[i])
+        axs[0].set_title('Best objective function value')
+        axs[0].set(xlabel='Iteration', ylabel='Objective function value')
 
-        return bestSolutionList[-1][:-1], bestObjectiveList[-1]
- 
+        axs[1].plot(t[i], alphaMeanList[i])
+        axs[1].set_title('Mean of alpha values')
+        axs[1].set(xlabel='Iteration', ylabel='Alpha value')
+
+        #Draw a vertical line each 50 iterations
+        for j in range(1,iteration[i]//iterationIneraction):
+            axs[0].axvline(x=50*j, color='grey', linestyle='--')
+            axs[1].axvline(x=50*j, color='grey', linestyle='--')
+
+    
+    plt.show()
+
+
+
+    # Return the best solution
+    return bestSolution, bestObjective
+
 @njit
 def tourIsValid(tour: np.ndarray):
     # Check if the tour is valid
     tour = tour.astype(np.int16)
-    if len(np.unique(tour[:distanceMatrix.shape[0]])) != distanceMatrix.shape[0]:
+    if len(np.unique(tour[:n_cities])) != n_cities:
         return False
     else:
         return True
     
-@njit
-def initialize() -> np.ndarray:
+
+def initialize(my_alpha: float) -> np.ndarray:
     # Create a matrix of random individuals
-    population = np.zeros((lambda_, distanceMatrix.shape[0] + 1)) # +1 for the alpha value
+    population = np.zeros((lambda_, n_cities + 1)) # +1 for the alpha value
 
     not_inf = 0
 
@@ -215,7 +379,7 @@ def initialize() -> np.ndarray:
         # Evaluate the individual with the objective function
         obj = objf(new_individual)
         # Check if the individual is valid for at most n times
-        max_tries = distanceMatrix.shape[0]
+        max_tries = n_cities
         while obj == np.inf and max_tries > 0:
             # Create a random individual
             new_individual = generate_individual_random()
@@ -247,7 +411,7 @@ def objf_pop(population : np.ndarray):
     sum_distance = np.zeros(population.shape[0])
 
     for i in range(population.shape[0]):
-        sum_distance[i] = objf(population[i,:distanceMatrix.shape[0]])
+        sum_distance[i] = objf(population[i,:n_cities])
     
     return sum_distance
 
@@ -258,7 +422,7 @@ def objf(tour : np.ndarray):
     #    print("tour: ", tour)
     #    raise ValueError("Invalid tour during objf")
 
-    #if tour.shape[0] != distanceMatrix.shape[0]:
+    #if tour.shape[0] != n_cities:
     #    raise ValueError("The number of cities must be equal to the number of rows of the distance matrix")
 
     # Convert float64 indices to integers
@@ -283,7 +447,7 @@ def objf(tour : np.ndarray):
 def selection(population: np.ndarray, k: int = 3):
 
     # Create a matrix of selected parents
-    selected = np.zeros((mu, distanceMatrix.shape[0] + 1))  # +1 for the alpha value
+    selected = np.zeros((mu, n_cities + 1))  # +1 for the alpha value
     selected[:,:-1] = selected[:,:-1].astype(np.int16)
 
     # Selecting the parents
@@ -348,7 +512,7 @@ def best_subset_solution(tour: np.ndarray, k: int):
     tour = tour.astype(np.int16)
     
     # Generate one random index
-    ri = np.random.randint(1, distanceMatrix.shape[0] - k)
+    ri = np.random.randint(1, n_cities - k)
 
     # Find the best subset solution from ri to ri+k using brute force
 
@@ -455,12 +619,12 @@ def objf_permutation(permutations: np.ndarray):
 @njit
 def generate_individual_greedy():
     # Create an individual choosing always the nearest city
-    individual = np.zeros(distanceMatrix.shape[0]).astype(np.int16)
+    individual = np.zeros(n_cities).astype(np.int16)
     individual[0] = 0
 
-    not_visited = np.arange(1, distanceMatrix.shape[0])
+    not_visited = np.arange(1, n_cities)
 
-    for ii in range(1, distanceMatrix.shape[0]):
+    for ii in range(1, n_cities):
         # Select the nearest city
         nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
         # Add the nearest city to the individual
@@ -473,16 +637,16 @@ def generate_individual_greedy():
 @njit
 def generate_individual_greedy_reverse():
     # Create an individual choosing always the nearest city
-    individual = np.zeros(distanceMatrix.shape[0]).astype(np.int16)
+    individual = np.zeros(n_cities).astype(np.int16)
     individual[0] = 0
 
     # Last city is random
-    individual[distanceMatrix.shape[0]-1] = np.random.randint(1, distanceMatrix.shape[0])
+    individual[n_cities-1] = np.random.randint(1, n_cities)
 
-    not_visited = np.arange(1, distanceMatrix.shape[0])
-    not_visited = np.delete(not_visited, np.where(not_visited == individual[distanceMatrix.shape[0]-1])[0][0])
+    not_visited = np.arange(1, n_cities)
+    not_visited = np.delete(not_visited, np.where(not_visited == individual[n_cities-1])[0][0])
 
-    for ii in range(distanceMatrix.shape[0]-2, 0 , -1):
+    for ii in range(n_cities-2, 0 , -1):
         # Select the nearest city backwards
         nearest_city = np.argmin(distanceMatrix[not_visited, individual[ii]])
         # Add the nearest city to the individual
@@ -497,17 +661,17 @@ def generate_individual_nearest_neighbor():
     # Create an individual choosing always the nearest city , second city is random
 
     # Create an individual starting from zero
-    individual = np.zeros(distanceMatrix.shape[0]).astype(np.int16)
+    individual = np.zeros(n_cities).astype(np.int16)
     individual[0] = 0
 
     # Second city is random from the city accessible from the first city 
     accessible_cities = np.argsort(distanceMatrix[0, :])
     individual[1] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
 
-    not_visited = np.arange(1, distanceMatrix.shape[0])
+    not_visited = np.arange(1, n_cities)
     not_visited = np.delete(not_visited, np.where(not_visited == individual[1])[0][0])
 
-    for ii in range(2, distanceMatrix.shape[0]):
+    for ii in range(2, n_cities):
         # Select the nearest city
         nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
         # Add the nearest city to the individual
@@ -520,19 +684,19 @@ def generate_individual_nearest_neighbor():
 @njit
 def generate_individual_nearest_neighbor_more_index(k: int):
     # Create an individual choosing always the nearest city , but choosing randomly each k cities
-    k = (distanceMatrix.shape[0] + 1)//k
+    k = (n_cities + 1)//k
 
     # Create an individual starting from zero
-    individual = np.zeros(distanceMatrix.shape[0]).astype(np.int16)
+    individual = np.zeros(n_cities).astype(np.int16)
     individual[0] = 0
     # Second city is random from the city accessible from the first city
     accessible_cities = np.argsort(distanceMatrix[0, :])
     individual[1] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
 
-    not_visited = np.arange(1, distanceMatrix.shape[0])
+    not_visited = np.arange(1, n_cities)
     not_visited = np.delete(not_visited, np.where(not_visited == individual[1])[0][0])
 
-    for ii in range(2, distanceMatrix.shape[0]):
+    for ii in range(2, n_cities):
 
         if ii % k == 0:
             # Select randomly a city from the not visited list
@@ -551,9 +715,9 @@ def generate_individual_nearest_neighbor_more_index(k: int):
 
 @njit
 def generate_individual_random():
-    r = np.zeros(distanceMatrix.shape[0]).astype(np.int16)
+    r = np.zeros(n_cities).astype(np.int16)
     r[0] = 0
-    r[1:] = np.random.permutation(np.arange(1, distanceMatrix.shape[0])).astype(np.int16)
+    r[1:] = np.random.permutation(np.arange(1, n_cities)).astype(np.int16)
 
     return r
 
@@ -561,14 +725,14 @@ def generate_individual_random():
 def pmx(parent1, parent2):
 
     # Create a child
-    child1 = np.ones(distanceMatrix.shape[0]).astype(np.int16)
-    child2 = np.ones(distanceMatrix.shape[0]).astype(np.int16)
+    child1 = np.ones(n_cities).astype(np.int16)
+    child2 = np.ones(n_cities).astype(np.int16)
 
     child1 = child1 * -1
     child2 = child2 * -1
 
     # select random start and end indices for parent1's subsection
-    start, end = sorted(np.random.choice(np.arange(1, distanceMatrix.shape[0] - 1), 2, replace=False))
+    start, end = sorted(np.random.choice(np.arange(1, n_cities - 1), 2, replace=False))
 
     # copy parent1's subsection into child
     child1[start:end] = parent1[start:end]
@@ -608,7 +772,7 @@ def pmx(parent1, parent2):
 @njit
 def crossover(selected: np.ndarray):
     # Create a matrix of offspring
-    offspring = np.zeros((mu, distanceMatrix.shape[0] + 1)) # +1 for the alpha value
+    offspring = np.zeros((mu, n_cities + 1)) # +1 for the alpha value
     offspring[:,:-1] = offspring[:,:-1].astype(np.int16)
 
     for ii in range(lambda_):
@@ -622,7 +786,7 @@ def crossover(selected: np.ndarray):
 
 @njit
 def swap_mutation(tour):
-    ri = sorted(np.random.choice(np.arange(1, distanceMatrix.shape[0]), 2, replace=False))
+    ri = sorted(np.random.choice(np.arange(1, n_cities), 2, replace=False))
 
     tour[ri[0]], tour[ri[1]] = tour[ri[1]], tour[ri[0]]
 
@@ -630,7 +794,7 @@ def swap_mutation(tour):
     
 @njit
 def insert_mutation(tour):
-    ri = sorted(np.random.choice(np.arange(1, distanceMatrix.shape[0]), 2, replace=False))
+    ri = sorted(np.random.choice(np.arange(1, n_cities), 2, replace=False))
 
     removed = tour[ri[1]]
     tour = np.delete(tour, ri[1])
@@ -640,7 +804,7 @@ def insert_mutation(tour):
 
 @njit
 def scramble_mutation(tour):
-    ri = sorted(np.random.choice(np.arange(1, distanceMatrix.shape[0]), 2, replace=False))
+    ri = sorted(np.random.choice(np.arange(1, n_cities), 2, replace=False))
 
     np.random.shuffle(tour[ri[0]:ri[1]])
 
@@ -648,7 +812,7 @@ def scramble_mutation(tour):
 
 @njit
 def inversion_mutation(tour):
-    ri = sorted(np.random.choice(np.arange(1, distanceMatrix.shape[0]), 2, replace=False))
+    ri = sorted(np.random.choice(np.arange(1, n_cities), 2, replace=False))
 
     tour[ri[0]:ri[1]] = tour[ri[0]:ri[1]][::-1]
 
@@ -660,10 +824,10 @@ def mutation(offspring: np.ndarray):
     # Apply the mutation to each row of the offspring array
     for ii, _ in enumerate(offspring):
         # Update alpha based on the success of the individual
-        #self.adapt_alpha(offspring[ii, :])
+        #adapt_alpha(offspring[ii, :])
 
         # Apply the mutation with probability alpha of the individual
-        if np.random.rand() < offspring[ii, distanceMatrix.shape[0]]:
+        if np.random.rand() < offspring[ii, n_cities]:
 
             # Add a noise to the alpha value
             offspring[ii, -1] = np.random.normal(offspring[ii, -1], 0.02)
@@ -703,15 +867,22 @@ def elimination_pro(joinedPopulation: np.ndarray):
     # Sort the individuals based on their objective function value
     perm = np.argsort(fvals)
 
-    # Select the best lambda/2 individuals
-    n_best = int(lambda_/4)
-    best_survivors = joinedPopulation[perm[0 : n_best], :]
+    # Select the best lambda/4 individuals
+    n_best = int(lambda_/8)
+    best_survivors = joinedPopulation[perm[0 : 3*n_best], :]
 
-    # Select randomly the rest individuals
-    random_survivors = joinedPopulation[np.random.choice(perm[n_best:], lambda_ - n_best, replace=False), :]
+    # Select randomly 2*lambda/4 individuals
+    random_survivors = joinedPopulation[np.random.choice(perm[n_best:], 4*n_best, replace=False), :]
+
+    # Generate lambda/4 individuals randomly
+    generate_survivors = np.zeros((lambda_ - 7*n_best, n_cities + 1))
+    for i in range(lambda_ - 7*n_best):
+        generate_survivors[i, :-1] = generate_individual_random()
+        # Take a value from alphaList
+        generate_survivors[i, -1] = np.random.normal(np.random.choice(alphaList), 0.05)
 
     # Concatenate the best and random survivors
-    survivors = np.vstack((best_survivors, random_survivors))
+    survivors = np.vstack((best_survivors, random_survivors, generate_survivors))
     
     return survivors
 
@@ -759,35 +930,49 @@ def adapt_alpha(population: np.ndarray):
 
 ########################################################################################
 
-lambda_=300
+lambda_=80 # x 4
 mu=lambda_*2
-my_alpha=0.35
+alphaList = np.array([0.3, 0.4, 0.5, 0.6])
+k_for_selection = np.array([3, 3, 3, 4])
 max_iterations=1000
-MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations / 3
+MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations // 5
 variancePopulation = 0
+iterationIneraction = 50
+n_population = 4
 
 
-file = open("tour50.csv")
+file_path = "tour200.csv"
+file = open(file_path)
 distanceMatrix = np.loadtxt(file, delimiter=",")
+n_cities = distanceMatrix.shape[0]
 file.close()
 
 results = []
 
 # Main 
 if __name__ == "__main__":
-    n_tries = 5
-    print("File: ", file)
-    for i in range(n_tries):
-        print("Try: ", i)
-        start_time = time.time()
-        best_tour, best_obj =  r0123456().optimize(file)
-        end_time = time.time()
-        # Save the best tour, objective function value
-        results.append((best_tour, best_obj))
+    print("File: ", file_path)
 
+    # Create a process pool executor with 2 processes
+    #n_processors = 2
+    #with Pool(n_processors) as executor:
+    #    results.append(executor.map(optimize, [distanceMatrix,distanceMatrix]))
+
+    #print(results)
+
+    #for i in range(n_tries):
+    #    print("Try: ", i)
+    start_time = time.time()
+    best_tour, best_obj =  optimize_island(distanceMatrix, verbose=True)
+    end_time = time.time()
+    #    # Save the best tour, objective function value
+    #    results.append((best_tour, best_obj))
+    print("Time: ", end_time - start_time)
+    print("Best tour: ", best_tour)
+    print("Best objective function value: ", best_obj, " Checked: ", objf(best_tour), " Valid: ", tourIsValid(best_tour))
     # Print all the results
-    for i, result in enumerate(results):
-        print("Result ", i, ": ", result)
+    #for i, result in enumerate(results):
+    #    print("Result ", i, ": ", result)
 
 
 
@@ -805,3 +990,5 @@ if __name__ == "__main__":
 # Inizializzazione favorendo la copertura di tutto lo spazio di ricerca
 # Alpha adaptation fatta per bene
 # Elimination con crowding
+# 2 selection da provare
+# Usa distanceMatrix passato come parametro
