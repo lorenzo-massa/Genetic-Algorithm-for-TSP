@@ -55,6 +55,7 @@ class TSP:
         print("--- Initialization: %s seconds ---" % initializationTime)
         timePassed = initializationTime
     
+        # print("Initial POP\n: ", self.population)
         terminationCriteria = True    
         while terminationCriteria:
             start = time.time()
@@ -63,6 +64,7 @@ class TSP:
             # selected = self.selection_variation(self.population, self.k, var)
             # selected = self.selection_topK(self.population, len(self.population)*0.75)
             selectiontime = time.time() - startselection
+            # print("POP after selection\n: ", self.population)
 
             startcross = time.time()
             # offspring = self.pmx_crossover(selected, self.k)                            # offspring = initial
@@ -70,16 +72,18 @@ class TSP:
             offspring = self.crossover_scx(selected)   
             # offspring = self.pmx_crossover_j(selected)            
             crossstime = time.time() - startcross
+            # print("POP after crossover\n: ", offspring)
 
             startmutate = time.time()
             joinedPopulation = np.vstack((self.mutate(offspring), self.mutate(self.population)))   # joinedPopulation = Initial polutation + mutated children = lambdaa*2
             mutatetime = time.time() - startmutate
+            # print("POP after mutation\n: ", joinedPopulation)
 
             startelemination = time.time()
-
             # self.population = self.elimination(joinedPopulation) # TODO put local search before elimination
             self.population = self.elimination_localSearch(joinedPopulation, countSameBestSol, i, tuning)
             elimtime = time.time() - startelemination
+            # print("POP after elimination\n: ", joinedPopulation)
 
             itT = time.time() - start
             fvals = pop_fitness(self.population, self.distanceMatrix)                   # compute the fitness of the population
@@ -158,23 +162,38 @@ class TSP:
             print("individual num: ", i)
             if i < 2:
                 new_individual = self.random_cycle()
+                print(new_individual)
+                if not self.tourIsCorrect(new_individual):
+                    print("new_individual: ", new_individual)
             elif i >= 2 and i<4:
                 new_individual = self.random_cycle_inverse()[::-1]
+                print(new_individual)
+                if not self.tourIsCorrect(new_individual):
+                    print("new_individual: ", new_individual)
             elif i >= 4 and i < 5:
-                # print("\tgreedy")
                 new_individual = TSP.generate_individual_greedy(self)
+                print(new_individual)
+                if not self.tourIsCorrect(new_individual):
+                    print("new_individual: ", new_individual)
             elif i >= 5 and i < 7:
-                # print("\tgreedy inverse")
                 new_individual = TSP.generate_individual_greedy_inverse(self)
+                print(new_individual)
+                if not self.tourIsCorrect(new_individual):
+                    print("new_individual: ", new_individual)
             elif i >= 7 and i < self.lambdaa * 0.2:
-                # print("\tnearest neighbour")
                 new_individual = TSP.generate_individual_nearest_neighbor(self)
+                print(new_individual)
+                if not self.tourIsCorrect(new_individual):
+                    print("new_individual: ", new_individual)
             elif i >= self.lambdaa * 0.2 and i < self.lambdaa * 0.4:
-                # print("\tnearest neighbour more random indices")
                 new_individual = TSP.generate_individual_nearest_neighbor_indices(self, 2)
+                if not self.tourIsCorrect(new_individual):
+                    print("new_individual: ", new_individual)
             else:
-                # print("\tjust random")
                 new_individual = TSP.generate_individual_random(self)
+                print(new_individual)
+                if not self.tourIsCorrect(new_individual):
+                    print("new_individual: ", new_individual)
             
             # Evaluate the individual with the objective function
             obj = fitness(new_individual, self.distanceMatrix)
@@ -217,11 +236,18 @@ class TSP:
         selected = np.zeros((self.mu, self.numCities - 1)).astype(int)
         for i in range(self.mu):
             # k-tournaments: randomly select k individuals
-            randIndices = random.choices(range(np.size(population,0)), k = k)
+            # randIndices = random.choices(range(np.size(population, 0)), k = k)
+            randIndices = np.random.choice(np.arange(1, population.shape[0] - 1), k, replace=False)
             # look for the best individual between the k randomly selected
             best = np.argmin(pop_fitness(population[randIndices, :], self.distanceMatrix))
 
             selected[i, :] = population[randIndices[best], :]
+            # print("SELECTED:", selected[i, :], selected.shape)
+
+            if not self.tourIsCorrect(selected[i, :]):
+                print("selected: ", selected[i, :])
+                raise ValueError("Invalid tour during selection")
+        # print("SELECTED:", selected, selected.shape)
         return selected
     
     def selection_topK(self, population, k):
@@ -237,6 +263,7 @@ class TSP:
             # and sample an element from this reduced (multi)set
             sampled_number = np.random.choice(sorted[:int(k)])
             selected[i, :] = population[sampled_number, :]
+            # print("SELECTEDDD", selected)
         return selected
 
     # TODO non funzia vettore con var, ma poi non so come funzionerebbe
@@ -293,8 +320,6 @@ class TSP:
             offspring[2*i + 1] = self.pmx_crossover_parents(p[1], p[0])
         return offspring
     def pmx_crossover_parents(self, p1, p2):
-        print(p1)
-        print(p2)
         # Choose random crossover points & assign corresponding segments
         cp1, cp2 = sorted(random.sample(range(len(p1)), 2))
         seg_p1, seg_p2 = p1[cp1:cp2 + 1], p2[cp1:cp2 + 1]
@@ -327,7 +352,6 @@ class TSP:
             # Perform crossover
             offspring[ii, :], offspring[ii + self.lambdaa, :] = self.pmx(selected[ri[0], :], selected[ri[1], :])
         return offspring
-
     def pmx(self, parent1, parent2):
         # Create a child
         child1 = np.ones(self.distanceMatrix.shape[0]-1).astype(np.int64)
@@ -391,16 +415,13 @@ class TSP:
         offspring = np.zeros((self.mu, self.distanceMatrix.shape[0] - 1))
         offspring = offspring.astype(np.int64)
 
-        for ii in range(self.lambdaa):
+        for ii in range(self.mu):   
             # Select two random parents
             ri = sorted(np.random.choice(np.arange(1, self.lambdaa), 2, replace=False))
             # Perform crossover using SCX
             offspring[ii, :] = self.scx(selected[ri[0], :], selected[ri[1], :])
         return offspring
-    
     def scx(self, parent1, parent2):
-        print(parent1)
-        print(parent2)
         # Create a child
         child = np.ones(self.distanceMatrix.shape[0] - 1).astype(np.int64)
         child = child * -1
@@ -440,12 +461,12 @@ class TSP:
             start_city = next_city
             not_visited = np.setdiff1d(not_visited, [child[i]])
 
-        if not self.tourIsValid(child):
+        if not self.tourIsCorrect(child):
             print("parent1: ", parent1)
             print("parent2: ", parent2)
             print("child: ", child)
             raise ValueError("Invalid tour during crossover")
-        print("childddd: ", child)
+        # print("childddd: ", child)
         return child
 
     def mutation(self, offspring, alpha):
@@ -775,13 +796,6 @@ class TSP:
         r = np.random.permutation(np.arange(1, self.distanceMatrix.shape[0])).astype(np.int64)
         return r
 
-    def tourIsValid(self, path):
-        path = path.astype(np.int64)
-        if len(np.unique(path[:self.numCities])) != self.numCities-1:
-            return False
-        else:
-            return True
-    
     def generate_individual_nearest_neighbor(self):
         # Create an individual choosing always the nearest city , second city is random
         individual = np.zeros(self.numCities-1).astype(np.int64)
