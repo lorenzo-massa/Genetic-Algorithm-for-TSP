@@ -17,14 +17,14 @@ def read_from_file(filename):
 class TSP:
     """ Parameters """
     def __init__(self, fitness, filename):
-        self.alpha = 0.3                            # Mutation probability
-        self.mutationratios = [7, 1, 1, 15]         # swap, insert, scramble, inversion -> mutation ratio
-        self.lambdaa = 100                          # Population size
+        self.alpha = 0.23                           # Mutation probability
+        self.mutationratios = [10, 1, 1, 15]        # swap, insert, scramble, inversion -> mutation ratio
+        self.lambdaa = 150                          # Population size
         self.mu = self.lambdaa * 2                  # Offspring size       
         self.k = 3                                  # Tournament selection
         self.numIters = 2000                        # Maximum number of iterations
         self.objf = fitness                         # Objective function
-        self.maxSameBestSol = 150        
+        self.maxSameBestSol = 200        
         self.distanceMatrix = read_from_file(filename)
         self.numCities = self.distanceMatrix.shape[0]         
         self.maxTime = 300                          # Maximum 5 minutes
@@ -37,6 +37,7 @@ class TSP:
         mean = []
         best = []
         bestSolutions = []
+        var_list = []
         
         # Termination criteria
         previousBestFitness = 0
@@ -58,36 +59,26 @@ class TSP:
         while terminationCriteria:
             start = time.time()
             startselection = time.time()
-            selected = self.selection(self.population, self.k)                          # selected = initial*2
+            selected = self.selection_kTour(self.population, self.k)                          # selected = initial*2
+            # selected = self.selection_variation(self.population, self.k, var)
+            # selected = self.selection_topK(self.population, len(self.population)*0.75)
             selectiontime = time.time() - startselection
 
             startcross = time.time()
             # offspring = self.pmx_crossover(selected, self.k)                            # offspring = initial
-            offspring = self.crossover(selected)               
+            # offspring = self.crossover(selected)  
+            offspring = self.crossover_scx(selected)   
+            # offspring = self.pmx_crossover_j(selected)            
             crossstime = time.time() - startcross
 
             startmutate = time.time()
-            joinedPopulation = np.vstack((self.mutate(offspring), self.population))   # joinedPopulation = Initial polutation + mutated children = lambdaa*2
+            joinedPopulation = np.vstack((self.mutate(offspring), self.mutate(self.population)))   # joinedPopulation = Initial polutation + mutated children = lambdaa*2
             mutatetime = time.time() - startmutate
 
             startelemination = time.time()
-            if countSameBestSol == 10:
-                tuning += 3
-            if i % 3 == 0:
-                print("one opt, k: ", tuning*2)
-                joinedPopulation = self.one_opt(joinedPopulation, tuning*2)             # TODO try tuning*3...
-            elif i %3 == 1:
-                print("subset, window: ", tuning)
-                if tuning >= 8:
-                    tuning = 3
-                joinedPopulation = self.local_search_subset(joinedPopulation, tuning)
-            else:
-                if tuning >= 8:
-                    tuning = 3
-                print("subset, window, shuffle: ", tuning)
-                joinedPopulation = self.local_search_shuffle_subset(joinedPopulation, tuning)
 
-            self.population = self.elimination(joinedPopulation) # TODO local search sugli individui peggiori o dei 3/4 dei selezionati dopo i migliori
+            # self.population = self.elimination(joinedPopulation) # TODO put local search before elimination
+            self.population = self.elimination_localSearch(joinedPopulation, countSameBestSol, i, tuning)
             elimtime = time.time() - startelemination
 
             itT = time.time() - start
@@ -103,11 +94,7 @@ class TSP:
             best.append(np.min(fvals))
 
             var = TSP.compute_variance(self.population)
-
-            # if i % 10 == 0:
-            #     for f in fvals:
-            #         var = pow(f - mean[-1], 2)
-            #     var = var/self.lambdaa
+            var_list.append(var)
 
             print(f'{i}) {timePassed: .2f}s:\t Mean fitness = {mean[i]: .2f} \t Best fitness = {best[i]: .2f}, variance = {var: .2f}, \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
             i=i+1
@@ -138,7 +125,7 @@ class TSP:
         print('Doneeee')
         totTime = time.time() - startTotTime
         print(f'Tot time: {totTime: .2f}s')
-        return mean, best, i-1
+        return mean, best, i-1, var_list, bestSolution
 
     def compute_variance(population):
         num_individuals = len(population)
@@ -150,7 +137,6 @@ class TSP:
                 total_distance += distance
 
         return total_distance / (num_individuals * (num_individuals - 1) / 2)
-
 
     def local_search_subset(self, population, k):
         # Apply the best subset solution to each row of the population array
@@ -185,8 +171,7 @@ class TSP:
                 new_individual = TSP.generate_individual_nearest_neighbor(self)
             elif i >= self.lambdaa * 0.2 and i < self.lambdaa * 0.4:
                 # print("\tnearest neighbour more random indices")
-                new_individual = TSP.generate_individual_random(self)
-                # new_individual = TSP.generate_individual_nearest_neighbor_indices(self, 2)
+                new_individual = TSP.generate_individual_nearest_neighbor_indices(self, 2)
             else:
                 # print("\tjust random")
                 new_individual = TSP.generate_individual_random(self)
@@ -227,7 +212,7 @@ class TSP:
             self.population[i, :] = self.random_cycle()
 
     """ Perform k-tournament selection to select pairs of parents. """
-    def selection(self, population, k):
+    def selection_kTour(self, population, k):
         # prepare future selected population
         selected = np.zeros((self.mu, self.numCities - 1)).astype(int)
         for i in range(self.mu):
@@ -238,6 +223,50 @@ class TSP:
 
             selected[i, :] = population[randIndices[best], :]
         return selected
+    
+    def selection_topK(self, population, k):
+        # prepare future selected population
+        selected = np.zeros((self.mu, self.numCities - 1)).astype(int)
+
+        # top best selection
+        fvals = pop_fitness(population, self.distanceMatrix)
+        # Sort the individuals based on their objective function value (list of ordered indices)
+        sorted = np.argsort(fvals)
+        for i in range(self.mu):
+            # limit the population P to the k candidate solutions with the best objective value 
+            # and sample an element from this reduced (multi)set
+            sampled_number = np.random.choice(sorted[:int(k)])
+            selected[i, :] = population[sampled_number, :]
+        return selected
+
+    # TODO non funzia vettore con var, ma poi non so come funzionerebbe
+    def selection_variation(self, population, k, var):
+        if var == 0:
+            print("aaa")
+            return self.selection(population, k)
+        else:
+            # Apply the objective function to each row of the joinedPopulation array
+            fvals = pop_fitness(population, self.distanceMatrix)
+            combined = fvals + var
+
+            # Check for NaN values in fvals
+            if np.isnan(fvals).any():
+                # Handle NaN values by setting their probabilities to zero
+                fvals[np.isnan(fvals)] = 0.0
+
+            # Your existing code
+            combined = fvals + var
+
+            sum_combined = np.sum(combined[~np.isinf(combined)])
+            if sum_combined == 0:
+                # Handle the case where the sum is zero (division by zero)
+                probabilities = np.ones(len(population)) / len(population)
+            else:
+                # Your existing code
+                probabilities = combined / sum_combined
+
+            selected_indices = np.random.choice(range(len(population)), size=len(population), p=combined/np.sum(combined[~np.isinf(combined)]))
+            return population[selected_indices, :]
 
     """ Perform recombination operators on the population 
     def crossover(self, population, k):
@@ -252,6 +281,41 @@ class TSP:
         return offspring
     """
     
+    """ Perform PMX-crossover using all of the given paths"""
+    def pmx_crossover_j(self, paths):
+        # We will create 2 offspring for each 2 parents
+        offspring = np.zeros((len(paths), self.numCities - 1)).astype(int)
+        # Take paths of even and odd indices together to create pairs of parents
+        parents = list(zip(paths[::2], paths[1::2]))
+        # Cross p0 with p1 and vice versa
+        for i, p in enumerate(parents):
+            offspring[2*i] = self.pmx_crossover_parents(p[0], p[1])
+            offspring[2*i + 1] = self.pmx_crossover_parents(p[1], p[0])
+        return offspring
+    def pmx_crossover_parents(self, p1, p2):
+        print(p1)
+        print(p2)
+        # Choose random crossover points & assign corresponding segments
+        cp1, cp2 = sorted(random.sample(range(len(p1)), 2))
+        seg_p1, seg_p2 = p1[cp1:cp2 + 1], p2[cp1:cp2 + 1]
+        # Initialize child with segment from p1
+        child = np.zeros(len(p1))
+        child[cp1:cp2 + 1] = seg_p1
+        # seg_idx is index of value i in seg_p2
+        for seg_idx, i in enumerate(seg_p2):
+            if i not in seg_p1:
+                j = seg_p1[seg_idx]
+                while True:
+                    pos_j_in_p2 = np.where(p2 == j)[0]
+                    if pos_j_in_p2[0] < cp1 or cp2 < pos_j_in_p2[0]:
+                        child[pos_j_in_p2] = i
+                        break
+                    else:
+                        j = p1[pos_j_in_p2[0]]
+        # Copy over the rest of p2 into the child
+        child[child == 0] = p2[child == 0]
+        return child
+
     def crossover(self, selected: np.ndarray):
         # Create a matrix of offspring
         offspring = np.zeros((self.mu, self.distanceMatrix.shape[0] - 1))
@@ -260,7 +324,6 @@ class TSP:
         for ii in range(self.lambdaa):
             # Select two random parents
             ri = sorted(np.random.choice(np.arange(1, self.lambdaa), 2, replace=False))
-
             # Perform crossover
             offspring[ii, :], offspring[ii + self.lambdaa, :] = self.pmx(selected[ri[0], :], selected[ri[1], :])
         return offspring
@@ -276,10 +339,8 @@ class TSP:
         # select random start and end indices for parent1's subsection
         start, end = sorted(np.random.choice(np.arange(1, self.distanceMatrix.shape[0]), 2, replace=False)) # why 1, ..?
 
-        # copy parent1's subsection into child
         child1[start:end] = parent1[start:end]
         child2[start:end] = parent2[start:end]
-
         child1[child1 == -1] = [i for i in parent2 if i not in child1]
         child2[child2 == -1] = [i for i in parent1 if i not in child2]
 
@@ -298,6 +359,7 @@ class TSP:
             raise ValueError("Invalid tour during crossover")
         return child1, child2
 
+    # individual one:
     def pmx_crossover(self, selected, k):
         offspring = np.zeros((self.lambdaa, self.numCities - 1)).astype(int)
         parents = list(zip(selected[::2], selected[1::2]))      # why?
@@ -323,6 +385,68 @@ class TSP:
             child[child == 0] = p2[child == 0]
             offspring[p] = child
         return offspring
+
+    def crossover_scx(self, selected: np.ndarray):
+        # Create a matrix of offspring
+        offspring = np.zeros((self.mu, self.distanceMatrix.shape[0] - 1))
+        offspring = offspring.astype(np.int64)
+
+        for ii in range(self.lambdaa):
+            # Select two random parents
+            ri = sorted(np.random.choice(np.arange(1, self.lambdaa), 2, replace=False))
+            # Perform crossover using SCX
+            offspring[ii, :] = self.scx(selected[ri[0], :], selected[ri[1], :])
+        return offspring
+    
+    def scx(self, parent1, parent2):
+        print(parent1)
+        print(parent2)
+        # Create a child
+        child = np.ones(self.distanceMatrix.shape[0] - 1).astype(np.int64)
+        child = child * -1
+
+        # Randomly select the starting city
+        start_city = np.random.choice(np.arange(1, self.distanceMatrix.shape[0]))
+
+        # Set the first city in the child
+        child[0] = start_city
+        not_visited = np.arange(1, self.distanceMatrix.shape[0])
+        not_visited = np.setdiff1d(not_visited, [child[0]])
+
+        for i in range(1, len(child)):
+            # print(child)
+            # print("not vis: ", not_visited)
+
+            # Find the index of the current city in both parents
+            index_parent1 = np.where(parent1 == start_city)[0][0]
+            index_parent2 = np.where(parent2 == start_city)[0][0]
+
+            # Find the neighbors of the current city in both parents
+            neighbors_parent1 = np.array([parent1[(index_parent1 - 1) % len(parent1)], parent1[(index_parent1 + 1) % len(parent1)]])
+            neighbors_parent2 = np.array([parent2[(index_parent2 - 1) % len(parent2)], parent2[(index_parent2 + 1) % len(parent2)]])
+
+            # Find the common neighbors
+            common_neighbors = np.intersect1d(neighbors_parent1, neighbors_parent2)
+            common_neighbors_valid = np.intersect1d(common_neighbors, not_visited)
+            # If there are common neighbors, choose one randomly
+            if len(common_neighbors_valid) > 0:
+                next_city = np.random.choice(common_neighbors_valid)
+            else:
+                distances = self.distanceMatrix[start_city, not_visited]
+                next_city_index = np.argmin(distances)   
+                next_city = not_visited[next_city_index]
+            # Set the next city in the child
+            child[i] = next_city
+            start_city = next_city
+            not_visited = np.setdiff1d(not_visited, [child[i]])
+
+        if not self.tourIsValid(child):
+            print("parent1: ", parent1)
+            print("parent2: ", parent2)
+            print("child: ", child)
+            raise ValueError("Invalid tour during crossover")
+        print("childddd: ", child)
+        return child
 
     def mutation(self, offspring, alpha):
         i = np.where(np.random.rand(np.size(offspring, 0)) <= alpha)[0]
@@ -361,7 +485,7 @@ class TSP:
         path[cp1:cp2 + 1] = path[cp1:cp2 + 1][::-1]
         return path   
 
-    def elimination(self, joinedPopulation: np.ndarray):
+    def elimination_localSearch(self, joinedPopulation, countSameBestSol, i, tuning):
         # Apply the objective function to each row of the joinedPopulation array
         fvals = pop_fitness(joinedPopulation, self.distanceMatrix)
 
@@ -370,6 +494,41 @@ class TSP:
 
         # Select the best ... individuals
         n_best = int(self.lambdaa/2)
+        best_survivors = joinedPopulation[perm[0 : n_best], :]
+
+        # Select randomly the rest individuals
+        random_survivors = joinedPopulation[np.random.choice(perm[n_best:], self.lambdaa - n_best, replace=False), :]
+
+        # apply local search to the random_survivors (which are not the best individuals)
+        if countSameBestSol == 10:
+            tuning += 3
+        if i % 3 == 0:
+            print("one opt, k: ", tuning*2)
+            random_survivors = self.one_opt(random_survivors, tuning*2)        
+        elif i %3 == 1:
+            print("subset, window: ", tuning)
+            if tuning >= 8:
+                tuning = 3
+            random_survivors = self.local_search_subset(random_survivors, tuning)
+        else:
+            if tuning >= 8:
+                tuning = 3
+            print("subset, window, shuffle: ", tuning)
+            random_survivors = self.local_search_shuffle_subset(random_survivors, tuning)
+
+        # Concatenate the best and random survivors
+        survivors = np.vstack((best_survivors, random_survivors))
+        return survivors
+
+    def elimination(self, joinedPopulation: np.ndarray):
+        # Apply the objective function to each row of the joinedPopulation array
+        fvals = pop_fitness(joinedPopulation, self.distanceMatrix)
+
+        # Sort the individuals based on their objective function value
+        perm = np.argsort(fvals)
+
+        # Select the best lambdaa/2 individuals
+        n_best = int(self.lambdaa/3)
         best_survivors = joinedPopulation[perm[0 : n_best], :]
 
         # Select randomly the rest individuals
@@ -638,6 +797,7 @@ class TSP:
             not_visited = np.delete(not_visited, nearest_city)
         return individual
     
+    """ # should be correct, i check and checked but then problem if index 0 in pmx
     def generate_individual_nearest_neighbor_indices(self, num):
         # Create an individual choosing always the nearest city, 'num' indices are chosen random
         individual = np.zeros(self.numCities-1).astype(np.int64)
@@ -657,7 +817,37 @@ class TSP:
             not_visited = np.delete(not_visited, nearest_city)
 
         return individual
+    """
     
+    def generate_individual_nearest_neighbor_indices(self, k):
+
+        k = (self.distanceMatrix.shape[0] + 1)//k
+        # Create an individual choosing always the nearest city, 'num' indices are chosen random
+        individual = np.zeros(self.numCities-1).astype(np.int64)
+
+        # Second city is random from the city accessible from the first city
+        accessible_cities = np.argsort(self.distanceMatrix[0, :]) # index of cities sorted from smaller to bigger
+        individual[0] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
+        #TODO check perchè sortare se tanto è random?
+
+        not_visited = np.arange(1, self.numCities)
+        not_visited = np.delete(not_visited, np.where(not_visited == individual[0])[0][0])
+
+        for ii in range(2, self.numCities):
+            if ii % k == 0:
+                # Select randomly a city from the not visited list
+                # nearest_city = random.choice(not_visited)
+                nearest_city = np.random.randint(0, not_visited.shape[0])
+            else:
+                # Select the nearest city
+                nearest_city = np.argmin(self.distanceMatrix[individual[ii - 1], not_visited])
+            # Add the nearest city to the individual
+            individual[ii-1] = not_visited[nearest_city]
+            # Remove the nearest city from the not visited list
+            not_visited = np.delete(not_visited, nearest_city)
+        
+        return individual
+
     def tourIsCorrect(self, tour):
         # Check if the tour is correct
         tour = tour.astype(np.int64)
@@ -738,24 +928,43 @@ def fitness_subpath(subpath, distanceMatrix):
         sum += distanceMatrix[subpath[i]][subpath[i + 1]]
     return sum
 
+def plot_variance(var, best):
+    plt.plot(var, label='Variance')
+    plt.xlabel('Iterations')
+    plt.show()
+
+    plt.plot(best, label='best')
+    plt.xlabel('Iterations')
+    # plt.title('Variance and Best fitness')
+    # plt.ylabel('')
+    # plt.legend()
+
+
 # --------------------------------------------------------- #
 
-tsp = TSP(fitness, "tour500.csv")
+tsp = TSP(fitness, "tour50.csv")
 
-mean, best, it = tsp.optimize()
+mean, best, it, var, bestInd = tsp.optimize()
+print(bestInd)
+plot_variance(var, best)
 
 # tour50: simple greedy heuristic                                                                                                   (TARGET 24k)
     # 27134 (time 170 , iter 750 , pop 500,  alpha 0.23, init mix)
     # 28971 uguale a sopra ma valori alti nella one_opt (10,15,20)
+    # 26392 pmx jonas
+
 # tour100: simple greedy heuristic 81616                                                                                            (TARGET 81k)
     # 81616 (time 78s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 80631 (pop 500, alpha 0.23, mutate also the initial pop, init randomValid, circa 600 ite)
     # 80612 (pop 500, tutto uguale a quella sopra ma con init_mix, 709 ite)
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+
 # tour200: simple greedy heuristic                                                                                                  (TARGET 35k)
     # 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 38514        (time   it   pop 300  alpha 0.23  init mix  one_opt alti)
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------------------ #
+    # 37600        (time 264, it 600, pop 100 alpha 0.23, var finale 115, resto bordello del ultimo commit)
 
 # tour500: simple greedy heuristic                                                                                                  (TARGET 141k)
     # 162248 (time 79  it 344  pop 100 alpha 0.1  init mix)
