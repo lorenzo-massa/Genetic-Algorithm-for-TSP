@@ -1197,5 +1197,4 @@ if __name__ == "__main__":
 # Inizializzazione favorendo la copertura di tutto lo spazio di ricerca
 # Usa distanceMatrix passato come parametro
 # ELIMINAION: crowding
-# MUTATION: https://dergipark.org.tr/tr/download/article-file/534290
 # EGDE RECOMBINATION
