@@ -17,14 +17,14 @@ def read_from_file(filename):
 class TSP:
     """ Parameters """
     def __init__(self, fitness, filename):
-        self.alpha = 0.23                           # Mutation probability
+        self.alpha = 0.5                           # Mutation probability
         self.mutationratios = [10, 1, 1, 15]        # swap, insert, scramble, inversion -> mutation ratio
         self.lambdaa = 150                          # Population size
         self.mu = self.lambdaa * 2                  # Offspring size       
         self.k = 3                                  # Tournament selection
         self.numIters = 2000                        # Maximum number of iterations
         self.objf = fitness                         # Objective function
-        self.maxSameBestSol = 200        
+        self.maxSameBestSol = 100        
         self.distanceMatrix = read_from_file(filename)
         self.numCities = self.distanceMatrix.shape[0]         
         self.maxTime = 300                          # Maximum 5 minutes
@@ -60,28 +60,33 @@ class TSP:
         while terminationCriteria:
             start = time.time()
             startselection = time.time()
-            selected = self.selection_kTour(self.population, self.k)                          # selected = initial*2
+            selected = self.selection_kTour(self.population, self.k)                                                         # selected = initial*2
             # selected = self.selection_variation(self.population, self.k, var)
             # selected = self.selection_topK(self.population, len(self.population)*0.75)
             selectiontime = time.time() - startselection
             # print("POP after selection\n: ", self.population)
 
             startcross = time.time()
-            # offspring = self.pmx_crossover(selected, self.k)                            # offspring = initial
+            offspring = self.pmx_crossover(selected, self.k)                                                               # offspring = initial
             # offspring = self.crossover(selected)  
-            offspring = self.crossover_scx(selected)   
+            # offspring = self.crossover_scx(selected)   
             # offspring = self.pmx_crossover_j(selected)            
             crossstime = time.time() - startcross
             # print("POP after crossover\n: ", offspring)
 
             startmutate = time.time()
-            joinedPopulation = np.vstack((self.mutate(offspring), self.mutate(self.population)))   # joinedPopulation = Initial polutation + mutated children = lambdaa*2
+            joinedPopulation = np.vstack((self.population, offspring))                                                     # joinedPopulation = Initial polutation + mutated children = lambdaa*2
+            sorted_population = joinedPopulation[np.argsort(pop_fitness(joinedPopulation, self.distanceMatrix))]
+            # to mutate more poulation thaqn just the offspring, but preserve the best 10 solutions
+            joinedPopulation = np.vstack((sorted_population[:10, :], self.mutate(sorted_population[10:, :])))
+            # alice prec:
+            # joinedPopulation = np.vstack((self.mutate(offspring), self.population))
             mutatetime = time.time() - startmutate
             # print("POP after mutation\n: ", joinedPopulation)
 
             startelemination = time.time()
-            # self.population = self.elimination(joinedPopulation) # TODO put local search before elimination
-            self.population = self.elimination_localSearch(joinedPopulation, countSameBestSol, i, tuning)
+            self.population = self.elimination_withoutLocal(joinedPopulation) # TODO put local search before elimination
+            # self.population = self.elimination_localSearch(joinedPopulation, countSameBestSol, i, tuning)
             elimtime = time.time() - startelemination
             # print("POP after elimination\n: ", joinedPopulation)
 
@@ -97,8 +102,8 @@ class TSP:
             mean.append(np.mean(fvals))
             best.append(np.min(fvals))
 
-            var = TSP.compute_variance(self.population)
-            var_list.append(var)
+            # var = TSP.compute_variance(self.population)
+            # var_list.append(var)
 
             print(f'{i}) {timePassed: .2f}s:\t Mean fitness = {mean[i]: .2f} \t Best fitness = {best[i]: .2f}, variance = {var: .2f}, \tpop shape = {tsp.population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
             i=i+1
@@ -187,6 +192,7 @@ class TSP:
                     print("new_individual: ", new_individual)
             elif i >= self.lambdaa * 0.2 and i < self.lambdaa * 0.4:
                 new_individual = TSP.generate_individual_nearest_neighbor_indices(self, 2)
+                print(new_individual)
                 if not self.tourIsCorrect(new_individual):
                     print("new_individual: ", new_individual)
             else:
@@ -270,7 +276,7 @@ class TSP:
     def selection_variation(self, population, k, var):
         if var == 0:
             print("aaa")
-            return self.selection(population, k)
+            return self.selection_kTour(population, k)
         else:
             # Apply the objective function to each row of the joinedPopulation array
             fvals = pop_fitness(population, self.distanceMatrix)
@@ -368,14 +374,14 @@ class TSP:
         child1[child1 == -1] = [i for i in parent2 if i not in child1]
         child2[child2 == -1] = [i for i in parent1 if i not in child2]
 
-        if not self.tourIsValid(child1):
+        if not self.tourIsCorrect(child1):
             print("start, end: ", start, end)
             print("parent1: ", parent1)
             print("parent2: ", parent2)
             print("child1: ", child1)
             raise ValueError("Invalid tour during crossover")
         
-        if not self.tourIsValid(child2):
+        if not self.tourIsCorrect(child2):
             print("start, end: ", start, end)
             print("parent1: ", parent1)
             print("parent2: ", parent2)
@@ -513,12 +519,14 @@ class TSP:
         # Sort the individuals based on their objective function value
         perm = np.argsort(fvals)
 
-        # Select the best ... individuals
-        n_best = int(self.lambdaa/2)
+        # Select the best individuals
+        n_best = int(self.lambdaa/3)
         best_survivors = joinedPopulation[perm[0 : n_best], :]
+        print(best_survivors.shape)
 
         # Select randomly the rest individuals
         random_survivors = joinedPopulation[np.random.choice(perm[n_best:], self.lambdaa - n_best, replace=False), :]
+        print(random_survivors.shape)
 
         # apply local search to the random_survivors (which are not the best individuals)
         if countSameBestSol == 10:
@@ -541,14 +549,14 @@ class TSP:
         survivors = np.vstack((best_survivors, random_survivors))
         return survivors
 
-    def elimination(self, joinedPopulation: np.ndarray):
+    def elimination_withoutLocal(self, joinedPopulation: np.ndarray):
         # Apply the objective function to each row of the joinedPopulation array
         fvals = pop_fitness(joinedPopulation, self.distanceMatrix)
 
         # Sort the individuals based on their objective function value
         perm = np.argsort(fvals)
 
-        # Select the best lambdaa/2 individuals
+        # Select the best lambdaa 1/2,3 individuals
         n_best = int(self.lambdaa/3)
         best_survivors = joinedPopulation[perm[0 : n_best], :]
 
@@ -953,6 +961,18 @@ def plot_variance(var, best):
     # plt.ylabel('')
     # plt.legend()
 
+def plot_graph(mean, best):
+    plt.plot(mean, label='Mean fitness')
+    plt.title('Mean fitness convergence')
+    plt.xlabel('Iterations')
+    plt.ylabel('mean fitness')
+
+    plt.plot(best, label='Best fitness')
+    plt.title('Best fitness convergence')
+    plt.xlabel('Iterations')
+    plt.ylabel('best fitness')
+    plt.legend()
+    plt.show()
 
 # --------------------------------------------------------- #
 
@@ -960,7 +980,8 @@ tsp = TSP(fitness, "tour50.csv")
 
 mean, best, it, var, bestInd = tsp.optimize()
 print(bestInd)
-plot_variance(var, best)
+plot_graph(mean, best)
+# plot_variance(var, best)
 
 # tour50: simple greedy heuristic                                                                                                   (TARGET 24k)
     # 27134 (time 170 , iter 750 , pop 500,  alpha 0.23, init mix)
@@ -978,18 +999,21 @@ plot_variance(var, best)
 # tour200: simple greedy heuristic                                                                                                  (TARGET 35k)
     # 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 38514        (time   it   pop 300  alpha 0.23  init mix  one_opt alti)
+    # 38325         (time 300, it 96, crossover scx lentissimo, pop 100)
     # 37600        (time 264, it 600, pop 100 alpha 0.23, var finale 115, resto bordello del ultimo commit)
 
 # tour500: simple greedy heuristic                                                                                                  (TARGET 141k)
-    # 162248 (time 79  it 344  pop 100 alpha 0.1  init mix)
-    # 160392.. (time ..  it ..   pop 200 alpha 0.23  init mix)
-    # 159899 (elimination half half, pop 100)
-    # 154707 (elimination half, tuning lore TODO check, local search subset + one_opt, pop 200)
-    # 152k  (300 iterazioni, pop 100, elimination half, pmx lore, local search tutte e 3, alpha 0.3)
+    # 162248    (time 79  it 344  pop 100 alpha 0.1  init mix)
+    # 160392..  (time ..  it ..   pop 200 alpha 0.23  init mix)
+    # 159899    (elimination half half, pop 100)
+    # 159630    (time 300 it 32 elim half, (aumentata best?!), pop 100, scx crossover lentoo)
+    # 154707    (elimination half, tuning lore TODO check, local search subset + one_opt, pop 200)
+    # 152k      (300 iterazioni, pop 100, elimination half, pmx lore, local search tutte e 3, alpha 0.3)
 
 # tour750: simple greedy heuristic                                                                                                  (TARGET 195k), prof 197541 
     # 204010.. (time ..  it 600   pop 200 alpha 0.23  init mix)
     # 158k, 197k         (elimination half, tuning lore TODO check, local search subset + one_opt, pop 200)
+    # 198845             (time 300 it 32, elim 1/3, pop 100, (aumentata best?!), scx crossover lentoo)
     # 195k               (uguale a sopra ma random_cycle iniziale)
 
 # tour1000: simple greedy heuristic                                                                                                 (TARGET 193k), prof 195848
@@ -998,4 +1022,5 @@ plot_variance(var, best)
     # 203041    init 42s (senza random_cycle) (pop 100, alpha 0.23, init mix, elim basic )
     # 203k      in 200 iterazioni velocissimo con pop 20!!
     # 196667    in 150 iterazioni, time limit, 300 pop (non sono sicura degli altri param, sicuro random-cycle iniziale, niente nn indici)
-    # 202k      
+    # 202k   
+    # ha trovato 201434 ma poi best aumentata!!
