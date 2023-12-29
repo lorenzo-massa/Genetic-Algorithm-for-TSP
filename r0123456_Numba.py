@@ -9,7 +9,7 @@ from concurrent.futures import ProcessPoolExecutor
 from sklearn.model_selection import ParameterSampler
  
 
-def optimize(verbose=False):
+def optimize(verbose=True):
 
 
     # Read distance matrix from file.
@@ -20,7 +20,7 @@ def optimize(verbose=False):
     # Your code here.    
 
     # Initialize the population
-    population = initialize()
+    population = initialize(alphaList[0])
 
     # Try to improve the initial population with local search
     #population = TSP.two_opt(population, 5)
@@ -76,11 +76,14 @@ def optimize(verbose=False):
         if tuning > 7:
             tuning = 3
             
-        if iteration % 2 == 0:                          # Better not to do to all the population ??
-            joinedPopulation = one_opt(joinedPopulation, tuning*2)
-        else:
-            joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
-
+        #if iteration % 2 == 0:                          # Better not to do to all the population ??
+        #    joinedPopulation = one_opt(joinedPopulation, tuning*2)
+        #else:
+        #    joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
+        for i in range(joinedPopulation.shape[0]):
+            new = local_search_operator_2_opt(joinedPopulation[i, :-1])
+            if new is not None:
+                joinedPopulation[i, :-1] = new
 
         # Elimination
         population = elimination_pro(joinedPopulation)
@@ -241,7 +244,7 @@ def optimize_island(verbose=False, testMode=False):
             if differentBestSolutions[i] > 0 and differentBestSolutions[i] % 8 == 0:
                 tuning[i] += 1
 
-            if tuning[i] > 6:
+            if tuning[i] > 5:
                 tuning[i] = 3
 
             iteration[i] += 1
@@ -343,7 +346,7 @@ def optimize_island(verbose=False, testMode=False):
 def process_island(population, iteration, tuning, k, i_population):
 
     # Selection
-    selected = selection_roulette(population)
+    selected = selection(population)
 
     # Crossover
     offspring = crossover(selected)
@@ -353,13 +356,18 @@ def process_island(population, iteration, tuning, k, i_population):
 
     # Mutation on the joined population without the 10 best solutions
     sorted_population = joinedPopulation[np.argsort(objf_pop(joinedPopulation))]
-    joinedPopulation = np.vstack((sorted_population[:10, :], mutation(sorted_population[10:, :], alphaList[i_population])))
+    joinedPopulation = np.vstack((sorted_population[:5, :], mutation(sorted_population[5:, :], alphaList[i_population])))
 
     # Local search
-    if iteration % 2 == 0:
-        joinedPopulation = one_opt(joinedPopulation, tuning)
-    else:
-        joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
+    #if iteration % 2 == 0:
+    #    joinedPopulation = one_opt(joinedPopulation, tuning)
+    #else:
+    #    joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
+    for i in range(joinedPopulation.shape[0]):
+            new = local_search_operator_2_opt(joinedPopulation[i, :-1])
+            if new is not None:
+                joinedPopulation[i, :-1] = new
+
 
     # Elimination
     population = elimination_pro(joinedPopulation)
@@ -391,12 +399,12 @@ def initialize(my_alpha: float) -> np.ndarray:
             new_individual = generate_individual_nearest_neighbor()
         elif i >= lambda_*0.02 and i < lambda_*0.04:
             new_individual = generate_individual_nearest_neighbor_more_index(3)
-        elif i >= lambda_*0.04 and i < lambda_*0.06:
-            new_individual = generate_individual_nearest_neighbor_more_index(5)
+        #elif i >= lambda_*0.04 and i < lambda_*0.06:
+        #    new_individual = generate_individual_nearest_neighbor_more_index(5)
         elif i >= lambda_*0.06 and i < lambda_*0.08:
             new_individual = generate_individual_nearest_neighbor_more_index(7)
-        elif i >= lambda_*0.08 and i < lambda_*0.10:
-            new_individual = generate_individual_nearest_neighbor_more_index(10)
+        #elif i >= lambda_*0.08 and i < lambda_*0.10:
+        #    new_individual = generate_individual_nearest_neighbor_more_index(10)
         else:
             new_individual = generate_individual_random()
 
@@ -968,10 +976,10 @@ def crossover(selected: np.ndarray):
         # Chose randomly the crossover operator
         #crossover_operator = np.random.choice([pmx, pmx2, scx, uox], p=[0.4, 0.1, 0.1, 0.4])
         #offspring[ii, :], offspring[ii + lambda_, :] = crossover_operator(selected[ri[0], :], selected[ri[1], :])
-        if np.random.rand() < 0.51:
-            offspring[ii, :], offspring[ii + lambda_, :] = pmx(selected[ri[0], :], selected[ri[1], :])
-        else:
-            offspring[ii, :], offspring[ii + lambda_, :] = uox(selected[ri[0], :], selected[ri[1], :])
+        #if np.random.rand() < 0.51:
+        offspring[ii, :], offspring[ii + lambda_, :] = pmx(selected[ri[0], :], selected[ri[1], :])
+        #else:
+        #offspring[ii, :], offspring[ii + lambda_, :] = uox(selected[ri[0], :], selected[ri[1], :])
 
     return offspring
 
@@ -1039,9 +1047,9 @@ def mutation(offspring: np.ndarray, alpha: float = 0.6):
                         
             # Randomly select a mutation operator with different probabilities
             mutation_operator = np.random.choice([inversion_mutation,swap_mutation, scramble_mutation,
-                insert_mutation], p=[0.55, 0.35, 0.05, 0.05]) 
-            #mutation_operator = np.random.choice([inversion_mutation,swap_mutation, thrors_mutation], p=[0.50, 0.30, 0.20]) 
+                insert_mutation, thrors_mutation], p=mutation_probabilities)
             
+
             offspring[ii, :] = mutation_operator(offspring[ii, :])
 
             #if not tourIsValid(offspring[ii, :-1]):
@@ -1096,6 +1104,117 @@ def elimination_pro(joinedPopulation: np.ndarray):
     return survivors
 
 
+def fitness_sharing_elimination(joinedPopulation: np.ndarray, sigma_share: float):
+    
+    # Apply the objective function to each row of the joinedPopulation array
+    fvals = objf_pop(joinedPopulation)
+
+    # Sort the individuals based on their objective function value
+    perm = np.argsort(fvals)
+
+    # Initialize the fitness sharing values
+    fitness_sharing_values = np.zeros(len(joinedPopulation))
+
+    # Calculate the fitness sharing values
+    for i in range(len(joinedPopulation)):
+        for j in range(len(joinedPopulation)):
+            if i != j:
+                distance = distance_from_to(joinedPopulation[i, :-1], joinedPopulation[j, :-1])
+                fitness_sharing_values[i] += distance
+
+    # Calculate the shared fitness values
+    shared_fitness = fvals / fitness_sharing_values
+
+    # Sort the individuals based on their shared fitness value
+    perm = np.argsort(shared_fitness)
+
+    # Select the best lambda individuals
+    survivors = joinedPopulation[perm[0:lambda_], :]
+
+    return survivors
+
+
+def distance_from_to(first_ind: np.ndarray, second_ind: np.ndarray):
+
+    # Convert NumPy arrays to sets for easy intersection calculation
+    edges_first = set(first_ind)
+    edges_second = set(second_ind)
+
+    # Calculate the set intersection
+    intersection = edges_first.intersection(edges_second)
+
+    # Calculate the distance by subtracting the size of the intersection set
+    # from the total number of edges in the first individual
+    num_edges_first = len(first_ind)
+    distance = num_edges_first - len(intersection)
+
+    return distance
+
+@njit
+def build_cumulatives(order: np.ndarray, 
+                      length: int):
+    order = order.astype(np.int16)
+
+    cum_from_0_to_first = np.zeros((length))
+    cum_from_second_to_end = np.zeros((length))
+    cum_from_second_to_end[length - 1] = distanceMatrix[order[-1], order[0]]
+    for i in range(1, length - 1):
+        cum_from_0_to_first[i] = cum_from_0_to_first[i - 1] \
+            + distanceMatrix[order[i-1], order[i]]        
+        cum_from_second_to_end[length - 1 - i] = cum_from_second_to_end[length - i] \
+            + distanceMatrix[order[length -1 - i], order[length - i]]
+    return cum_from_0_to_first, cum_from_second_to_end
+
+@njit
+def local_search_operator_2_opt(order: np.ndarray):
+    """Local search operator, which makes use of 2-opt. Swap two edges within a cycle."""
+
+    order = order.astype(np.int16)
+
+    best_fitness = objf(order)
+    length = len(order)
+    best_combination = (0, 0)
+
+    cum_from_0_to_first, cum_from_second_to_end = build_cumulatives(order, length)
+    if cum_from_second_to_end[-1] > np.inf:
+        return None
+
+    for first in range(1, length - 2):
+        fit_first_part = cum_from_0_to_first[first-1]
+        if fit_first_part > np.inf or fit_first_part > best_fitness:
+            break
+        fit_middle_part = 0.0
+        for second in range(first + 2, length):
+            fit_middle_part += distanceMatrix[order[second-1],order[second-2]]
+            if fit_middle_part > np.inf:
+                break
+            
+            fit_last_part = cum_from_second_to_end[second]
+            if fit_last_part > np.inf:
+                continue
+
+            bridge_first = distanceMatrix[order[first-1],order[second-1]]
+            bridge_second = distanceMatrix[order[first],order[second]]
+            temp = fit_first_part + fit_middle_part
+            if temp > best_fitness:
+                continue
+            new_fitness = temp + fit_last_part + bridge_first + bridge_second
+            
+            if new_fitness < best_fitness:
+                best_combination = (first, second)
+                best_fitness = new_fitness
+    best_first, best_second = best_combination
+    if best_first == 0: # Initial individual was best
+        return None
+    new_order = np.copy(order)
+    new_order[best_first:best_second] = new_order[best_first:best_second][::-1]
+
+    if not tourIsValid(new_order):
+        print("new_order: ", new_order)
+        raise ValueError("Invalid tour during 2-opt local search")
+
+    return new_order
+
 ########################################################################################
         
 
@@ -1103,17 +1222,19 @@ def elimination_pro(joinedPopulation: np.ndarray):
 reporter = Reporter.Reporter("r0123456")
 
 
-lambda_=100 # x 4
+lambda_=50 # x 4
 mu=lambda_*2
+mutation_probabilities = np.array([0.55, 0.35, 0.05, 0.05, 0.0]) # Sum must be 1
+#mutation_probabilities = np.array([0.05, 0.15, 0.15, 0.20, 0.45])
 alphaList = np.array([0.7, 0.7, 0.7, 0.7]) 
 k_for_selection = np.array([2, 3, 4, 5])
 max_iterations=2000
-MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations // 10
+MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations // 4
 variancePopulation = 0
 n_population = 4
 
 
-file_path = "tour50.csv"
+file_path = "tour1000.csv"
 file = open(file_path)
 distanceMatrix = np.loadtxt(file, delimiter=",")
 n_cities = distanceMatrix.shape[0]
@@ -1138,7 +1259,7 @@ if __name__ == "__main__":
 
 
     # Specify the number of iterations
-    #n_iter = 10
+    #n_iter = 100
 
     #for i in range(n_iter):
         # Run your function
@@ -1152,8 +1273,14 @@ if __name__ == "__main__":
 
     # Define the parameter distributions
     #param_distributions = {
-    #    'alphaList': [[np.random.uniform(0.5, 0.85) for _ in range(4)] for _ in range(n_iter)]
+    #    'mutation_probabilities': [[np.random.uniform(0.01, 0.9) for _ in range(5)] for _ in range(n_iter)],
+    #    'k_for_selection': [[ np.random.randint(2, 6) for _ in range(4)] for _ in range(n_iter)],
+    #    'lambda_': [np.random.randint(20, 200) for _ in range(n_iter)]
     #}
+
+    # Normalize the probabilities
+    #for i in range(n_iter):
+    #    param_distributions['mutation_probabilities'][i] = param_distributions['mutation_probabilities'][i] / np.sum(param_distributions['mutation_probabilities'][i])
 
     # Create the parameter sampler
     #sampler = ParameterSampler(param_distributions, n_iter=n_iter, random_state=0)
@@ -1161,7 +1288,9 @@ if __name__ == "__main__":
     # For each combination of parameters
     #for params in sampler:
         # Set the parameters
-    #    alphaList = params['alphaList']
+    #    mutation_probabilities = params['mutation_probabilities']
+    #    k_for_selection = params['k_for_selection']
+    #    lambda_ = params['lambda_']
 
         # Print the results
     #    print("---------------------------------------------")
