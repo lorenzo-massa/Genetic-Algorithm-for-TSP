@@ -94,7 +94,6 @@ class r0978353:
             i=i+1
 
             # Check for termination  TODO FUNCTION
-            # timeLeft = 300 - timePassed
             if(i % 20 == 0):
                 print("---- Time left: ", int(timeLeft))
             # Termination criteria 1: time limit
@@ -121,7 +120,7 @@ class r0978353:
         totTime = time.time() - startTotTime
         print(f'Tot time: {totTime: .2f}s')
 
-        return mean, best[-1], bestSolution[-1], i-1
+        return mean, best[-1], bestSolution, i-1
 
 def read_from_file(filename):
     file = open(filename)
@@ -151,7 +150,7 @@ def initialization_mix() -> np.ndarray:
             new_individual = generate_individual_random()
 
         if not tourIsCorrect(new_individual):
-                print("new_individual: ", new_individual)
+            print("new_individual: ", new_individual)
 
         # Evaluate the individual with the objective function
         obj = fitness(new_individual)
@@ -250,36 +249,6 @@ def selection_topK( population, k):
         sampled_number = np.random.choice(sorted[:int(k)])
         selected[i, :] = population[sampled_number, :]
     return selected
-
-# TODO non funzia vettore con var, ma poi non so come funzionerebbe
-@jit(nopython=True)
-def selection_variation( population, k, var):
-    if var == 0:
-        return selection_kTour(population, k)
-    else:
-        # Apply the objective function to each row of the joinedPopulation array
-        fvals = pop_fitness(population)
-        combined = fvals + var
-
-        # Check for NaN values in fvals
-        if np.isnan(fvals).any():
-            # Handle NaN values by setting their probabilities to zero
-            fvals[np.isnan(fvals)] = 0.0
-
-        # Your existing code
-        combined = fvals + var
-
-        sum_combined = np.sum(combined[~np.isinf(combined)])
-        if sum_combined == 0:
-            # Handle the case where the sum is zero (division by zero)
-            probabilities = np.ones(len(population)) / len(population)
-        else:
-            # Your existing code
-            probabilities = combined / sum_combined
-
-        selected_indices = np.random.choice(range(len(population)), size=len(population), p=combined/np.sum(combined[~np.isinf(combined)]))
-        return population[selected_indices, :]
-
 
 """ Perform PMX-crossover using all of the given paths"""
 @jit(nopython=True)
@@ -499,6 +468,7 @@ def mutation_inversion( path):
     path[ri[0]:ri[1]] = path[ri[0]:ri[1]][::-1]
     return path   
 
+# @jit(nopython=True) because local_search_subset è senza numba
 def elimination_localSearch( joinedPopulation, countSameBestSol, i, tuning):
 
     # keep some best before local search
@@ -512,7 +482,10 @@ def elimination_localSearch( joinedPopulation, countSameBestSol, i, tuning):
         new_ind = local_search_operator_2_opt(joinedPopulation[j])
         if new_ind is not None:
             joinedPopulation[j] = new_ind
-
+            if not tourIsCorrect(new_ind):
+                print("NOT CORRECT: ", new_ind)
+                raise ValueError("Invalid tour during 2-opt")
+        
     # Select randomly the rest individuals
     random_survivors = joinedPopulation[np.random.choice(perm[n_best:], lambdaa - n_best, replace=False), :]
     # apply local search to the random_survivors (which are not the best individuals)
@@ -797,7 +770,7 @@ def generate_individual_nearest_neighbor():
     return individual
 
 @jit(nopython=True)
-def generate_individual_nearest_neighbor_indices( k):
+def generate_individual_nearest_neighbor_indices(k):
 
     k = (distanceMatrix.shape[0] + 1)//k
     # Create an individual choosing always the nearest city, 'num' indices are chosen random
@@ -827,7 +800,7 @@ def generate_individual_nearest_neighbor_indices( k):
     return individual
 
 @jit(nopython=True)
-def tourIsCorrect( tour):
+def tourIsCorrect(tour):
     # Check if the tour is correct
     tour = tour.astype(np.int64)
     if len(np.unique(tour[:distanceMatrix.shape[0]])) != distanceMatrix.shape[0]-1:
@@ -836,7 +809,7 @@ def tourIsCorrect( tour):
         return True
 
 @jit(nopython=True)  
-def one_opt( population, k):
+def one_opt(population, k):
     if k < 1 or k > population.shape[1] - 1:
         raise ValueError("k must be between 2 and n-1")
     for i in range(population.shape[0]):
@@ -912,43 +885,55 @@ def plot_graph(mean, best):
 # --------------------------------------------------------- #
 
 # Parameters
-alpha = 0.5                                      # Mutation probability
-mutationratios = [0.9, 0.1, 0, 0]                # inversion, swap, scramble, insert
-lambdaa = 100                                    # Population size
-mu = lambdaa * 2                                 # Offspring size       
-k = 3                                            # Tournament selection
-numIters = 2000                                  # Maximum number of iterations
-objf = fitness                                   # Objective function
-maxSameBestSol = 100  
-maxTime = 300                                    # Maximum 5 minutes
 
-fileName= "data/tour750.csv"    
-distanceMatrix = read_from_file(fileName)
-numCities = distanceMatrix.shape[0]        
 
-iterations = range(2)
+
+f1="data/tour50.csv"
+f2="data/tour100.csv"
+f3="data/tour200.csv"
+f4="data/tour500.csv"
+f5="data/tour750.csv"
+f6="data/tour1000.csv"
+files = [f6]
+    
+
+iterations = range(3)
 results_iterations = []
 if __name__ == "__main__":
-    for i in iterations:
-        print(fileName, "\t Try: ", i)
-        start_time = time.time()
-        mean, best_fit, best_ind, numIt = r0978353().optimize()
-        end_time = time.time()
-        results_iterations.append((best_fit))
-    
-    # Print all the results
-    print("\n", str(fileName))
-    for i, result in enumerate(results_iterations):
-        print("Result ", i, ": ", result)
-    print("mean of the results: ", np.mean(results_iterations))
-    print("Best results found: ", np.min(results_iterations))
+    for f in files:
+        alpha = 0.5                                      # Mutation probability
+        mutationratios = [0.9, 0.1, 0, 0]                # inversion, swap, scramble, insert
+        lambdaa = 100                                    # Population size
+        mu = lambdaa * 2                                 # Offspring size       
+        k = 3                                            # Tournament selection
+        numIters = 2000                                  # Maximum number of iterations
+        objf = fitness                                   # Objective function
+        maxSameBestSol = 100  
+        maxTime = 300                                    # Maximum 5 minutes
+        distanceMatrix = read_from_file(f)
+        numCities = distanceMatrix.shape[0]   
 
-# Plot histogram
-plt.hist(results_iterations, bins=20, color='blue', edgecolor='black')
-plt.xlabel('Best Fitness')
-plt.ylabel('Count of Iterations')
-plt.title('Histogram of Best Fitness Values')
-plt.show()
+        for i in iterations:
+            print(f, "\t Try: ", i)
+            start_time = time.time()
+            mean, best_fit, best_ind, numIt = r0978353().optimize()
+            end_time = time.time()
+            results_iterations.append((best_fit))
+    
+        # Print all the results
+        print("\n", str(f))
+        for i, result in enumerate(results_iterations):
+            print("Result ", i, ": ", result)
+        print("mean of the results: ", np.mean(results_iterations))
+        print("Best results found: ", np.min(results_iterations))
+        print("\n")
+
+        # # Plot histogram
+        # plt.hist(results_iterations, bins=20, color='blue', edgecolor='black')
+        # plt.xlabel('Best Fitness')
+        # plt.ylabel('Count of Iterations')
+        # plt.title('Histogram of Best Fitness Values')
+        # plt.show()
 
 
 
@@ -964,7 +949,6 @@ plt.show()
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------ #
 
-
 # tour200: simple greedy heuristic                                                                                                  (TARGET 35k)
     # 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 38514        (time   it   pop 300  alpha 0.23  init mix  one_opt alti)
@@ -978,12 +962,14 @@ plt.show()
     # 159630    (time 300 it 32 elim half, (aumentata best?!), pop 100, scx crossover lentoo)
     # 154707    (elimination half, tuning lore TODO check, local search subset + one_opt, pop 200)
     # 152k      (300 iterazioni, pop 100, elimination half, pmx lore, local search tutte e 3, alpha 0.3)
+    # 137k       2 opt ...sus...
 
 # tour750: simple greedy heuristic                                                                                                  (TARGET 195k), prof 197541 
-    # 204010.. (time ..  it 600   pop 200 alpha 0.23  init mix)
+    # 204010..           (time ..  it 600   pop 200 alpha 0.23  init mix)
     # 158k, 197k         (elimination half, tuning lore TODO check, local search subset + one_opt, pop 200)
     # 198845             (time 300 it 32, elim 1/3, pop 100, (aumentata best?!), scx crossover lentoo)
     # 195k               (uguale a sopra ma random_cycle iniziale)
+    # 175k                con 2-opt ...sus...
 
 # tour1000: simple greedy heuristic                                                                                                 (TARGET 193k), prof 195848
     # 209884    init 126s (senza random_cycle) (it 100, pop 300, alpha 0.23, init mix, one_opt troppo alto elim sempre 1.15s)
@@ -991,5 +977,4 @@ plt.show()
     # 203041    init 42s (senza random_cycle) (pop 100, alpha 0.23, init mix, elim basic )
     # 203k      in 200 iterazioni velocissimo con pop 20!!
     # 196667    in 150 iterazioni, time limit, 300 pop (non sono sicura degli altri param, sicuro random-cycle iniziale, niente nn indici)
-    # 202k   
-    # ha trovato 201434 ma poi best aumentata!!
+    # 200k      con 2-opt
