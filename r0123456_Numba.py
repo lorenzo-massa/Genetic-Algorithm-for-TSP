@@ -1263,7 +1263,7 @@ variancePopulation = 0
 n_population = 4
 
 
-file_path = "tour1000.csv"
+file_path = "tour00.csv"
 file = open(file_path)
 distanceMatrix = np.loadtxt(file, delimiter=",")
 n_cities = distanceMatrix.shape[0]
