@@ -66,7 +66,6 @@ class r0978353:
             sorted_population = joinedPopulation[np.argsort(pop_fitness(joinedPopulation))]
             # to mutate more poulation thaqn just the offspring, but preserve the best 10 solutions
             joinedPopulation = np.vstack((sorted_population[:10, :], mutate(sorted_population[10:, :], mutationratios)))
-            # alice prec: joinedPopulation = np.vstack((mutate(offspring), population))
             mutatetime = time.time() - startmutate
 
             # Elimination and Local Search
@@ -501,43 +500,40 @@ def mutation_inversion( path):
     return path   
 
 def elimination_localSearch( joinedPopulation, countSameBestSol, i, tuning):
-    # Apply the objective function to each row of the joinedPopulation array
+
+    # keep some best before local search
     fvals = pop_fitness(joinedPopulation)
-
-    # Sort the individuals based on their objective function value
     perm = np.argsort(fvals)
+    n_best = int(lambdaa/4)
+    best_selected = joinedPopulation[perm[0:n_best], :]
 
-    # Select the best individuals
-    n_best = int(lambdaa/3)
-    best_survivors = joinedPopulation[perm[0 : n_best], :]
+    # Local search on all individual
+    for j in range(n_best, mu):
+        new_ind = local_search_operator_2_opt(joinedPopulation[j])
+        if new_ind is not None:
+            joinedPopulation[j] = new_ind
 
     # Select randomly the rest individuals
     random_survivors = joinedPopulation[np.random.choice(perm[n_best:], lambdaa - n_best, replace=False), :]
-
-    for i in range(len(random_survivors)):
-        new_ind = local_search_operator_2_opt(random_survivors[i])
-        if new_ind is not None:
-            random_survivors[i] = random_survivors[i]
-
-    # # apply local search to the random_survivors (which are not the best individuals)
-    # if countSameBestSol == 10:
-    #     tuning += 3
-    # if i % 3 == 0:
-    #     print("one opt, k: ", tuning*2)
-    #     random_survivors = one_opt(random_survivors, tuning*2)        
-    # elif i %3 == 1:
-    #     print("subset, window: ", tuning)
-    #     if tuning >= 8:
-    #         tuning = 3
-    #     random_survivors = local_search_subset(random_survivors, tuning)
-    # else:
-    #     if tuning >= 8:
-    #         tuning = 3
-    #     print("subset, window, shuffle: ", tuning)
-    #     random_survivors = local_search_shuffle_subset(random_survivors, tuning)
+    # apply local search to the random_survivors (which are not the best individuals)
+    if countSameBestSol == 10:
+        tuning += 3
+    if i % 3 == 0:
+        print("one opt, k: ", tuning*2)
+        random_survivors = one_opt(random_survivors, tuning*2)        
+    elif i %3 == 1:
+        print("subset, window: ", tuning)
+        if tuning >= 8:
+            tuning = 3
+        random_survivors = local_search_subset(random_survivors, tuning)
+    else:
+        if tuning >= 8:
+            tuning = 3
+        print("subset, window, shuffle: ", tuning)
+        random_survivors = local_search_shuffle_subset(random_survivors, tuning)
 
     # Concatenate the best and random survivors
-    survivors = np.vstack((best_survivors, random_survivors))
+    survivors = np.vstack((best_selected, random_survivors))
     return survivors
 
 
@@ -917,7 +913,7 @@ def plot_graph(mean, best):
 
 # Parameters
 alpha = 0.5                                      # Mutation probability
-mutationratios = [0.9, 0.1, 0, 0]                  # inversion, swap, scramble, insert
+mutationratios = [0.9, 0.1, 0, 0]                # inversion, swap, scramble, insert
 lambdaa = 100                                    # Population size
 mu = lambdaa * 2                                 # Offspring size       
 k = 3                                            # Tournament selection
@@ -926,11 +922,11 @@ objf = fitness                                   # Objective function
 maxSameBestSol = 100  
 maxTime = 300                                    # Maximum 5 minutes
 
-fileName= "data/tour50.csv"    
+fileName= "data/tour750.csv"    
 distanceMatrix = read_from_file(fileName)
 numCities = distanceMatrix.shape[0]        
 
-iterations = range(50)
+iterations = range(2)
 results_iterations = []
 if __name__ == "__main__":
     for i in iterations:
@@ -972,7 +968,7 @@ plt.show()
 # tour200: simple greedy heuristic                                                                                                  (TARGET 35k)
     # 48509        (time 195s, 1k iterations, pop 150, alpha 0.23, init randomValid)
     # 38514        (time   it   pop 300  alpha 0.23  init mix  one_opt alti)
-    # 38325         (time 300, it 96, crossover scx lentissimo, pop 100)
+    # 38325        (time 300, it 96, crossover scx lentissimo, pop 100)
     # 37600        (time 264, it 600, pop 100 alpha 0.23, var finale 115, resto bordello del ultimo commit)
 
 # tour500: simple greedy heuristic                                                                                                  (TARGET 141k)
