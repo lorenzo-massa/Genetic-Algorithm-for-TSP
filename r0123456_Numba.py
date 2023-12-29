@@ -67,14 +67,14 @@ def optimize(verbose=True):
 
         # Mutation on the joined population without the 10 best solutions
         sorted_population = joinedPopulation[np.argsort(objf_pop(joinedPopulation))]
-        joinedPopulation = np.vstack((sorted_population[:10, :], mutation(sorted_population[10:, :])))
+        joinedPopulation = np.vstack((sorted_population[:3, :], mutation(sorted_population[3:, :])))
 
         # Local search
-        if differentBestSolutions > 0 and differentBestSolutions % 8 == 0:
-            tuning += 1
+        #if differentBestSolutions > 0 and differentBestSolutions % 8 == 0:
+        #    tuning += 1
 
-        if tuning > 7:
-            tuning = 3
+        #if tuning > 7:
+        #    tuning = 3
             
         #if iteration % 2 == 0:                          # Better not to do to all the population ??
         #    joinedPopulation = one_opt(joinedPopulation, tuning*2)
@@ -197,7 +197,8 @@ def optimize_island(verbose=False, testMode=False):
     populations = []
     for i in range(n_population):
         populations.append(initialize(alphaList[i]))
-        populations[i] = local_search_best_subset(populations[i], 3)
+        #populations[i] = local_search_best_subset(populations[i], 3)
+        populations[i] = two_opt(populations[i])
 
     #print("Initialization time: ", time.time() - start_time)
 
@@ -223,10 +224,7 @@ def optimize_island(verbose=False, testMode=False):
         populations = list(executor.map(process_island, populations, iteration, tuning, k_for_selection, range(n_population)))
 
         # For each population
-        for i in range(n_population):
-
-            #populations[i] = process_island(populations[i], i, iteration[i], tuning[i], differentBestSolutions[i])
-            
+        for i in range(n_population):            
 
             # Compute and save progress
             fvals = objf_pop(populations[i])                                    # Compute the objective function value for each individual
@@ -356,23 +354,23 @@ def process_island(population, iteration, tuning, k, i_population):
 
     # Mutation on the joined population without the 10 best solutions
     sorted_population = joinedPopulation[np.argsort(objf_pop(joinedPopulation))]
-    joinedPopulation = np.vstack((sorted_population[:5, :], mutation(sorted_population[5:, :], alphaList[i_population])))
+    joinedPopulation = np.vstack((sorted_population[:3, :], mutation(sorted_population[3:, :], alphaList[i_population])))
 
     # Local search
     #if iteration % 2 == 0:
     #    joinedPopulation = one_opt(joinedPopulation, tuning)
     #else:
     #    joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
-    for i in range(joinedPopulation.shape[0]):
-            new = local_search_operator_2_opt(joinedPopulation[i, :-1])
-            if new is not None:
-                joinedPopulation[i, :-1] = new
+    joinedPopulation = two_opt(joinedPopulation)
+    
 
 
     # Elimination
     population = elimination_pro(joinedPopulation)
 
     return population
+
+# UTILITY FUNCTIONS
 
 @njit
 def tourIsValid(tour: np.ndarray):
@@ -382,6 +380,151 @@ def tourIsValid(tour: np.ndarray):
         return False
     else:
         return True
+
+@njit
+def objf_pop(population : np.ndarray):
+    sum_distance = np.zeros(population.shape[0])
+
+    for i in range(population.shape[0]):
+        sum_distance[i] = objf(population[i,:n_cities])
+    
+    return sum_distance
+
+@njit
+def objf(tour : np.ndarray):
+
+    #if not tourIsValid(tour):
+    #    print("tour: ", tour)
+    #    raise ValueError("Invalid tour during objf")
+
+    #if tour.shape[0] != n_cities:
+    #    raise ValueError("The number of cities must be equal to the number of rows of the distance matrix")
+
+    # Convert float64 indices to integers
+    tour = tour.astype(np.int16)
+
+    # Apply the objective function to each row of the cities array
+    sum_distance = 0
+
+    for ii in range(tour.shape[0] - 1):
+        # Sum the distances between the cities
+        sum_distance += distanceMatrix[tour[ii], tour[ii + 1]]
+
+        if sum_distance == np.inf:
+            return np.inf
+
+    # Add the distance between the last and first city
+    sum_distance += distanceMatrix[tour[- 1], tour[0]]
+
+    return sum_distance
+
+# INIZIALIZATION
+
+@njit
+def generate_individual_greedy():
+    # Create an individual choosing always the nearest city
+    individual = np.zeros(n_cities).astype(np.int16)
+    individual[0] = 0
+
+    not_visited = np.arange(1, n_cities)
+
+    for ii in range(1, n_cities):
+        # Select the nearest city
+        nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
+        # Add the nearest city to the individual
+        individual[ii] = not_visited[nearest_city]
+        # Remove the nearest city from the not visited list
+        not_visited = np.delete(not_visited, nearest_city)
+
+    return individual
+    
+@njit
+def generate_individual_greedy_reverse():
+    # Create an individual choosing always the nearest city
+    individual = np.zeros(n_cities).astype(np.int16)
+    individual[0] = 0
+
+    # Last city is random
+    individual[n_cities-1] = np.random.randint(1, n_cities)
+
+    not_visited = np.arange(1, n_cities)
+    not_visited = np.delete(not_visited, np.where(not_visited == individual[n_cities-1])[0][0])
+
+    for ii in range(n_cities-2, 0 , -1):
+        # Select the nearest city backwards
+        nearest_city = np.argmin(distanceMatrix[not_visited, individual[ii]])
+        # Add the nearest city to the individual
+        individual[ii] = not_visited[nearest_city]
+        # Remove the nearest city from the not visited list
+        not_visited = np.delete(not_visited, nearest_city)
+
+    return individual
+
+@njit
+def generate_individual_nearest_neighbor():
+    # Create an individual choosing always the nearest city , second city is random
+
+    # Create an individual starting from zero
+    individual = np.zeros(n_cities).astype(np.int16)
+    individual[0] = 0
+
+    # Second city is random from the city accessible from the first city 
+    accessible_cities = np.argsort(distanceMatrix[0, :])
+    individual[1] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
+
+    not_visited = np.arange(1, n_cities)
+    not_visited = np.delete(not_visited, np.where(not_visited == individual[1])[0][0])
+
+    for ii in range(2, n_cities):
+        # Select the nearest city
+        nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
+        # Add the nearest city to the individual
+        individual[ii] = not_visited[nearest_city]
+        # Remove the nearest city from the not visited list
+        not_visited = np.delete(not_visited, nearest_city)
+
+    return individual
+
+@njit
+def generate_individual_nearest_neighbor_more_index(k: int):
+    # Create an individual choosing always the nearest city , but choosing randomly each k cities
+    k = (n_cities + 1)//k
+
+    # Create an individual starting from zero
+    individual = np.zeros(n_cities).astype(np.int16)
+    individual[0] = 0
+    # Second city is random from the city accessible from the first city
+    accessible_cities = np.argsort(distanceMatrix[0, :])
+    individual[1] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
+
+    not_visited = np.arange(1, n_cities)
+    not_visited = np.delete(not_visited, np.where(not_visited == individual[1])[0][0])
+
+    for ii in range(2, n_cities):
+
+        if ii % k == 0:
+            # Select randomly a city from the not visited list
+            nearest_city= np.random.randint(0, not_visited.shape[0])
+        else:
+            # Select the nearest city
+            nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
+
+        # Add the nearest city to the individual
+        individual[ii] = not_visited[nearest_city]
+        # Remove the nearest city from the not visited list
+        not_visited = np.delete(not_visited, nearest_city)
+
+
+    return individual
+
+@njit
+def generate_individual_random():
+    r = np.zeros(n_cities).astype(np.int16)
+    r[0] = 0
+    r[1:] = np.random.permutation(np.arange(1, n_cities)).astype(np.int16)
+
+    return r
+
 
 def initialize(my_alpha: float) -> np.ndarray:
     # Create a matrix of random individuals
@@ -438,42 +581,8 @@ def initialize(my_alpha: float) -> np.ndarray:
 
     return population
 
-@njit
-def objf_pop(population : np.ndarray):
-    sum_distance = np.zeros(population.shape[0])
 
-    for i in range(population.shape[0]):
-        sum_distance[i] = objf(population[i,:n_cities])
-    
-    return sum_distance
-
-@njit
-def objf(tour : np.ndarray):
-
-    #if not tourIsValid(tour):
-    #    print("tour: ", tour)
-    #    raise ValueError("Invalid tour during objf")
-
-    #if tour.shape[0] != n_cities:
-    #    raise ValueError("The number of cities must be equal to the number of rows of the distance matrix")
-
-    # Convert float64 indices to integers
-    tour = tour.astype(np.int16)
-
-    # Apply the objective function to each row of the cities array
-    sum_distance = 0
-
-    for ii in range(tour.shape[0] - 1):
-        # Sum the distances between the cities
-        sum_distance += distanceMatrix[tour[ii], tour[ii + 1]]
-
-        if sum_distance == np.inf:
-            return np.inf
-
-    # Add the distance between the last and first city
-    sum_distance += distanceMatrix[tour[- 1], tour[0]]
-
-    return sum_distance
+# SELECTION
 
 @njit
 def selection(population: np.ndarray, k: int = 3):
@@ -525,6 +634,9 @@ def selection_roulette(population: np.ndarray):
     selected = population[selected_indices, :]
 
     return selected
+
+
+# LOCAL SEARCH
 
 @njit
 def one_opt(population: np.ndarray, k):
@@ -675,110 +787,7 @@ def objf_permutation(permutations: np.ndarray):
     
         return obj
 
-@njit
-def generate_individual_greedy():
-    # Create an individual choosing always the nearest city
-    individual = np.zeros(n_cities).astype(np.int16)
-    individual[0] = 0
-
-    not_visited = np.arange(1, n_cities)
-
-    for ii in range(1, n_cities):
-        # Select the nearest city
-        nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
-        # Add the nearest city to the individual
-        individual[ii] = not_visited[nearest_city]
-        # Remove the nearest city from the not visited list
-        not_visited = np.delete(not_visited, nearest_city)
-
-    return individual
-    
-@njit
-def generate_individual_greedy_reverse():
-    # Create an individual choosing always the nearest city
-    individual = np.zeros(n_cities).astype(np.int16)
-    individual[0] = 0
-
-    # Last city is random
-    individual[n_cities-1] = np.random.randint(1, n_cities)
-
-    not_visited = np.arange(1, n_cities)
-    not_visited = np.delete(not_visited, np.where(not_visited == individual[n_cities-1])[0][0])
-
-    for ii in range(n_cities-2, 0 , -1):
-        # Select the nearest city backwards
-        nearest_city = np.argmin(distanceMatrix[not_visited, individual[ii]])
-        # Add the nearest city to the individual
-        individual[ii] = not_visited[nearest_city]
-        # Remove the nearest city from the not visited list
-        not_visited = np.delete(not_visited, nearest_city)
-
-    return individual
-
-@njit
-def generate_individual_nearest_neighbor():
-    # Create an individual choosing always the nearest city , second city is random
-
-    # Create an individual starting from zero
-    individual = np.zeros(n_cities).astype(np.int16)
-    individual[0] = 0
-
-    # Second city is random from the city accessible from the first city 
-    accessible_cities = np.argsort(distanceMatrix[0, :])
-    individual[1] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
-
-    not_visited = np.arange(1, n_cities)
-    not_visited = np.delete(not_visited, np.where(not_visited == individual[1])[0][0])
-
-    for ii in range(2, n_cities):
-        # Select the nearest city
-        nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
-        # Add the nearest city to the individual
-        individual[ii] = not_visited[nearest_city]
-        # Remove the nearest city from the not visited list
-        not_visited = np.delete(not_visited, nearest_city)
-
-    return individual
-
-@njit
-def generate_individual_nearest_neighbor_more_index(k: int):
-    # Create an individual choosing always the nearest city , but choosing randomly each k cities
-    k = (n_cities + 1)//k
-
-    # Create an individual starting from zero
-    individual = np.zeros(n_cities).astype(np.int16)
-    individual[0] = 0
-    # Second city is random from the city accessible from the first city
-    accessible_cities = np.argsort(distanceMatrix[0, :])
-    individual[1] = accessible_cities[np.random.randint(1, accessible_cities.shape[0])]
-
-    not_visited = np.arange(1, n_cities)
-    not_visited = np.delete(not_visited, np.where(not_visited == individual[1])[0][0])
-
-    for ii in range(2, n_cities):
-
-        if ii % k == 0:
-            # Select randomly a city from the not visited list
-            nearest_city= np.random.randint(0, not_visited.shape[0])
-        else:
-            # Select the nearest city
-            nearest_city = np.argmin(distanceMatrix[individual[ii - 1], not_visited])
-
-        # Add the nearest city to the individual
-        individual[ii] = not_visited[nearest_city]
-        # Remove the nearest city from the not visited list
-        not_visited = np.delete(not_visited, nearest_city)
-
-
-    return individual
-
-@njit
-def generate_individual_random():
-    r = np.zeros(n_cities).astype(np.int16)
-    r[0] = 0
-    r[1:] = np.random.permutation(np.arange(1, n_cities)).astype(np.int16)
-
-    return r
+# CROSSOVER
 
 @njit
 def pmx(parent1: np.ndarray, parent2: np.ndarray):
@@ -977,11 +986,13 @@ def crossover(selected: np.ndarray):
         #crossover_operator = np.random.choice([pmx, pmx2, scx, uox], p=[0.4, 0.1, 0.1, 0.4])
         #offspring[ii, :], offspring[ii + lambda_, :] = crossover_operator(selected[ri[0], :], selected[ri[1], :])
         #if np.random.rand() < 0.51:
-        offspring[ii, :], offspring[ii + lambda_, :] = pmx(selected[ri[0], :], selected[ri[1], :])
+        #offspring[ii, :], offspring[ii + lambda_, :] = pmx(selected[ri[0], :], selected[ri[1], :])
         #else:
-        #offspring[ii, :], offspring[ii + lambda_, :] = uox(selected[ri[0], :], selected[ri[1], :])
+        offspring[ii, :], offspring[ii + lambda_, :] = uox(selected[ri[0], :], selected[ri[1], :])
 
     return offspring
+
+# MUTATION
 
 @njit
 def swap_mutation(tour):
@@ -1029,6 +1040,7 @@ def thrors_mutation(tour):
 
     return tour
 
+@njit
 def mutation(offspring: np.ndarray, alpha: float = 0.6):
 
     # Apply the mutation to each row of the offspring array
@@ -1046,17 +1058,25 @@ def mutation(offspring: np.ndarray, alpha: float = 0.6):
             offspring[ii, -1] = np.random.normal(offspring[ii, -1], 0.02)
                         
             # Randomly select a mutation operator with different probabilities
-            mutation_operator = np.random.choice([inversion_mutation,swap_mutation, scramble_mutation,
-                insert_mutation, thrors_mutation], p=mutation_probabilities)
+            #mutation_operator = np.random.choice([inversion_mutation,swap_mutation, scramble_mutation,
+            #    insert_mutation, thrors_mutation], p=mutation_probabilities)
+
+            if np.random.rand() < 0.2:
+                offspring[ii, :] = swap_mutation(offspring[ii, :])
+            else:
+                offspring[ii, :] = inversion_mutation(offspring[ii, :])
+                
             
 
-            offspring[ii, :] = mutation_operator(offspring[ii, :])
+            #offspring[ii, :] = mutation_operator(offspring[ii, :])
 
             #if not tourIsValid(offspring[ii, :-1]):
             #    print("offspring: ", offspring[ii, :-1])
             #    raise ValueError("Invalid tour during mutation")
 
     return offspring
+
+# ELIMINATION
 
 @njit
 def elimination( joinedPopulation: np.ndarray):
@@ -1078,17 +1098,17 @@ def elimination_pro(joinedPopulation: np.ndarray):
     # Sort the individuals based on their objective function value
     perm = np.argsort(fvals)
 
-    # Select the best lambda/4 individuals
+    # Select the best individuals
     n_best = int(lambda_/8)
     best_survivors = joinedPopulation[perm[0 : 3*n_best], :]
 
-    # Select randomly 2*lambda/4 individuals
+    # Select randomly individuals
     random_survivors = joinedPopulation[np.random.choice(perm[n_best:], 4*n_best, replace=False), :]
 
     #Remove duplicates
     random_survivors = np.unique(random_survivors, axis=0)
 
-    # Generate lambda/4 individuals randomly
+    # Generate  individuals randomly
     generate_survivors = np.zeros((lambda_ - best_survivors.shape[0] - random_survivors.shape[0], n_cities + 1))
     for i in range(generate_survivors.shape[0]):
         generate_survivors[i, :-1] = generate_individual_random()
@@ -1166,7 +1186,17 @@ def build_cumulatives(order: np.ndarray,
     return cum_from_0_to_first, cum_from_second_to_end
 
 @njit
-def local_search_operator_2_opt(order: np.ndarray):
+def two_opt(population: np.ndarray):
+    # Apply the local search operator to each row of the population array
+    for ii in range(population.shape[0]):
+        new = operator_2_opt(population[ii, :-1])
+        if new is not None:
+                population[ii, :-1] = new
+    
+    return population
+
+@njit
+def operator_2_opt(order: np.ndarray):
     """Local search operator, which makes use of 2-opt. Swap two edges within a cycle."""
 
     order = order.astype(np.int16)
@@ -1222,10 +1252,9 @@ def local_search_operator_2_opt(order: np.ndarray):
 reporter = Reporter.Reporter("r0123456")
 
 
-lambda_=50 # x 4
+lambda_=25 # x 4
 mu=lambda_*2
-mutation_probabilities = np.array([0.55, 0.35, 0.05, 0.05, 0.0]) # Sum must be 1
-#mutation_probabilities = np.array([0.05, 0.15, 0.15, 0.20, 0.45])
+#mutation_probabilities = np.array([0.55, 0.35, 0.05, 0.05, 0.0]) # Sum must be 1
 alphaList = np.array([0.7, 0.7, 0.7, 0.7]) 
 k_for_selection = np.array([2, 3, 4, 5])
 max_iterations=2000
@@ -1320,10 +1349,3 @@ if __name__ == "__main__":
 #                                                          (BEST 187.5k)    alphaList =np.array([0.8, 0.8, 0.8, 0.8]) k_for_selection = np.array([2, 3, 4, 5]) (PMX and UOX)
 #                                                          (BEST 192.1k)    alphaList =np.array([0.8, 0.8, 0.8, 0.8]) k_for_selection = np.array([2, 3, 4, 5]) (PMX and UOX) and Roulette Wheel Selection
 
-# To improve:
-
-# Inizializzazione prendendo città con piu infiniti
-# Inizializzazione favorendo la copertura di tutto lo spazio di ricerca
-# Usa distanceMatrix passato come parametro
-# ELIMINAION: crowding
-# EGDE RECOMBINATION
