@@ -188,19 +188,14 @@ def optimize(verbose=True):
  
 def optimize_island(verbose=False, testMode=False):
 
-    # Set up the executor
-    executor = ProcessPoolExecutor(max_workers=n_population)
-
     start_time = time.time()
 
     # Initialize the n_population populations  
     populations = []
     for i in range(n_population):
         populations.append(initialize(alphaList[i]))
-        #populations[i] = local_search_best_subset(populations[i], 3)
         populations[i] = two_opt(populations[i])
 
-    #print("Initialization time: ", time.time() - start_time)
 
     # Store the progress of each population
     meanObjectiveList = [[] for i in range(n_population)]
@@ -212,16 +207,18 @@ def optimize_island(verbose=False, testMode=False):
     differentBestSolutions = [0] * n_population
 
     # Tuning parameter for the local search
-    tuning = [2] * n_population
+    #tuning = [2] * n_population
 
     # Set up the loop
-    iteration = [0] * n_population
+    iteration = 0
     yourConvergenceTestsHere = True
 
+    # Set up the executor
+    executor = ProcessPoolExecutor(max_workers=n_population)
     
     while yourConvergenceTestsHere:
 
-        populations = list(executor.map(process_island, populations, iteration, tuning, k_for_selection, range(n_population)))
+        populations = list(executor.map(process_island, populations))
 
         # For each population
         for i in range(n_population):            
@@ -234,21 +231,20 @@ def optimize_island(verbose=False, testMode=False):
             alphaMeanList[i].append(np.mean(populations[i][:, -1]))             # Mean of alpha values
 
             # Adaptation of parameters
-            if iteration[i]> 1 and bestObjectiveList[i][-1] == bestObjectiveList[i][-2] and bestObjectiveList[i][-1] != np.inf:
+            if iteration > 1 and bestObjectiveList[i][-1] == bestObjectiveList[i][-2] and bestObjectiveList[i][-1] != np.inf:
                 differentBestSolutions[i] += 1
             else:
                 differentBestSolutions[i] = 0
 
-            if differentBestSolutions[i] > 0 and differentBestSolutions[i] % 8 == 0:
-                tuning[i] += 1
+            #if differentBestSolutions[i] > 0 and differentBestSolutions[i] % 8 == 0:
+            #    tuning[i] += 1
 
-            if tuning[i] > 5:
-                tuning[i] = 3
+            #if tuning[i] > 5:
+            #    tuning[i] = 3
 
-            iteration[i] += 1
 
         # Interact the populations 
-        if max(iteration) % iterationIneraction == 0:
+        if iteration % iterationIneraction == 0:
             # Join the n_population populations
             completePopulation = np.vstack(populations)
             # Shuffle the complete population
@@ -277,25 +273,20 @@ def optimize_island(verbose=False, testMode=False):
         timeLeft = reporter.report(meanObjective, bestObjective, bestSolution)
 
         # Print progress
-        if max(iteration) % 5 == 0 and verbose == True:
+        if verbose == True and iteration % 5 == 0:
             print(
                 "Iteration: %d, Mean: %f, Best: %f, Time left: %f, Diff Best: %d"
-                % (max(iteration), meanObjective, bestObjective, timeLeft, min(differentBestSolutions))
+                % (iteration, meanObjective, bestObjective, timeLeft, min(differentBestSolutions))
             )
-
-        # Check for termination
-        if max(iteration) >= max_iterations:
-            yourConvergenceTestsHere = False
-            if not testMode:
-                print("Terminated because of max iterations")
 
         if min(differentBestSolutions) >= MAX_DIFFERENT_BEST_SOLUTIONS:
             yourConvergenceTestsHere = False
             if not testMode:
                 print(
                     "Terminated because of %d equal best solutions"
-                    % max(differentBestSolutions)
+                    % min(differentBestSolutions)
                 )
+            break
 
         if timeLeft < 0 and not testMode:
             yourConvergenceTestsHere = False
@@ -307,41 +298,13 @@ def optimize_island(verbose=False, testMode=False):
             if not testMode:
                 print("Terminated because of time limit")
             break
-            
 
-
-    if verbose:
-        
-        # Plot the mean and the best obj comparing the n_population populations
-        t = [np.arange(0, iteration[i], 1) for i in range(n_population)]
-
-        fig, axs = plt.subplots(1, 2)
-
-        # Set the dimensions of the figure
-        fig.set_figheight(10)
-        fig.set_figwidth(15)
-
-        for i in range(n_population):
-            #axs[0].plot(t[i], meanObjectiveList[i])
-            axs[0].plot(t[i], bestObjectiveList[i])
-            axs[0].set_title('Best objective function value')
-            axs[0].set(xlabel='Iteration', ylabel='Objective function value')
-
-            axs[1].plot(t[i], alphaMeanList[i])
-            axs[1].set_title('Mean of alpha values')
-            axs[1].set(xlabel='Iteration', ylabel='Alpha value')
-
-            #Draw a vertical line every iterationIneraction iterations
-            for j in range(1,iteration[i]//iterationIneraction + 1):
-                axs[0].axvline(x=iterationIneraction*j, color='grey', linestyle='--')
-                axs[1].axvline(x=iterationIneraction*j, color='grey', linestyle='--')
-
-        plt.show()
+        iteration += 1
 
     # Return the best solution
-    return bestSolution, bestObjective
+    return bestSolution, bestObjective, bestObjectiveList, bestSolutionList, meanObjectiveList, alphaMeanList, iteration+1
 
-def process_island(population, iteration, tuning, k, i_population):
+def process_island(population):
 
     # Selection
     selected = selection(population)
@@ -352,19 +315,13 @@ def process_island(population, iteration, tuning, k, i_population):
     # Join the population and the offspring
     joinedPopulation = np.vstack((population, offspring))
 
-    # Mutation on the joined population without the 10 best solutions
+    # Mutation on the joined population without the 3 best solutions
     sorted_population = joinedPopulation[np.argsort(objf_pop(joinedPopulation))]
-    joinedPopulation = np.vstack((sorted_population[:3, :], mutation(sorted_population[3:, :], alphaList[i_population])))
+    joinedPopulation = np.vstack((sorted_population[:lambda_//6, :], mutation(sorted_population[lambda_//6:, :])))
 
     # Local search
-    #if iteration % 2 == 0:
-    #    joinedPopulation = one_opt(joinedPopulation, tuning)
-    #else:
-    #    joinedPopulation = local_search_best_subset(joinedPopulation, tuning)
     joinedPopulation = two_opt(joinedPopulation)
     
-
-
     # Elimination
     population = elimination_pro(joinedPopulation)
 
@@ -618,7 +575,7 @@ def selection(population: np.ndarray, k: int = 3):
 
     return selected
     
-
+"""
 def selection_roulette(population: np.ndarray):
 
     # Calculate the fitness values
@@ -634,7 +591,7 @@ def selection_roulette(population: np.ndarray):
     selected = population[selected_indices, :]
 
     return selected
-
+"""
 
 # LOCAL SEARCH
 
@@ -670,7 +627,82 @@ def one_opt(population: np.ndarray, k):
 
     return population
 
+@njit
+def build_cumulatives(order: np.ndarray, 
+                      length: int):
+    order = order.astype(np.int16)
 
+    cum_from_0_to_first = np.zeros((length))
+    cum_from_second_to_end = np.zeros((length))
+    cum_from_second_to_end[length - 1] = distanceMatrix[order[-1], order[0]]
+    for i in range(1, length - 1):
+        cum_from_0_to_first[i] = cum_from_0_to_first[i - 1] \
+            + distanceMatrix[order[i-1], order[i]]        
+        cum_from_second_to_end[length - 1 - i] = cum_from_second_to_end[length - i] \
+            + distanceMatrix[order[length -1 - i], order[length - i]]
+    return cum_from_0_to_first, cum_from_second_to_end
+
+@njit
+def two_opt(population: np.ndarray):
+    # Apply the local search operator to each row of the population array
+    for ii in range(population.shape[0]):
+        new = operator_2_opt(population[ii, :-1])
+        if new is not None:
+                population[ii, :-1] = new
+    
+    return population
+
+@njit
+def operator_2_opt(order: np.ndarray):
+    """Local search operator, which makes use of 2-opt. Swap two edges within a cycle."""
+
+    order = order.astype(np.int16)
+
+    best_fitness = objf(order)
+    length = len(order)
+    best_combination = (0, 0)
+
+    cum_from_0_to_first, cum_from_second_to_end = build_cumulatives(order, length)
+    if cum_from_second_to_end[-1] > np.inf:
+        return None
+
+    for first in range(1, length - 2):
+        fit_first_part = cum_from_0_to_first[first-1]
+        if fit_first_part > np.inf or fit_first_part > best_fitness:
+            break
+        fit_middle_part = 0.0
+        for second in range(first + 2, length):
+            fit_middle_part += distanceMatrix[order[second-1],order[second-2]]
+            if fit_middle_part > np.inf:
+                break
+            
+            fit_last_part = cum_from_second_to_end[second]
+            if fit_last_part > np.inf:
+                continue
+
+            bridge_first = distanceMatrix[order[first-1],order[second-1]]
+            bridge_second = distanceMatrix[order[first],order[second]]
+            temp = fit_first_part + fit_middle_part
+            if temp > best_fitness:
+                continue
+            new_fitness = temp + fit_last_part + bridge_first + bridge_second
+            
+            if new_fitness < best_fitness:
+                best_combination = (first, second)
+                best_fitness = new_fitness
+    best_first, best_second = best_combination
+    if best_first == 0: # Initial individual was best
+        return None
+    new_order = np.copy(order)
+    new_order[best_first:best_second] = new_order[best_first:best_second][::-1]
+
+    if not tourIsValid(new_order):
+        print("new_order: ", new_order)
+        raise ValueError("Invalid tour during 2-opt local search")
+
+    return new_order
+
+"""
 def local_search_best_subset(population: np.ndarray, k: int):
     # Apply the best subset solution to each row of the population array
     for ii in range(population.shape[0]):
@@ -722,14 +754,12 @@ def best_subset_solution(tour: np.ndarray, k: int):
 
     return best_tour
 
-@njit
 def _factorial(n):
     if n == 1:
         return n
     else:
         return n * _factorial(n-1)
 
-@njit
 def generate_permutations(arr: np.ndarray):
     d = arr.shape[0]
     d_fact = _factorial(d)
@@ -759,7 +789,6 @@ def generate_permutations(arr: np.ndarray):
     # Return array of d! rows and d columns (all permutations)
     return res   
 
-@njit
 def objf_perm(tour: np.ndarray):
         
         # Convert float64 indices to integers
@@ -777,7 +806,6 @@ def objf_perm(tour: np.ndarray):
     
         return sum_distance
 
-@njit
 def objf_permutation(permutations: np.ndarray):
         # Apply the objective function to each row of the permutations array
         obj = np.zeros(permutations.shape[0])
@@ -786,7 +814,7 @@ def objf_permutation(permutations: np.ndarray):
             obj[ii] = objf_perm(permutations[ii, :])
     
         return obj
-
+"""
 # CROSSOVER
 
 @njit
@@ -820,98 +848,6 @@ def pmx(parent1: np.ndarray, parent2: np.ndarray):
     # Concatenate the child to the alpha value
     child1 = np.concatenate((child1, new_alpha1))
     child2 = np.concatenate((child2, new_alpha2))
-
-    return child1, child2
-
-
-def pmx2(parent1: np.ndarray, parent2: np.ndarray):
-    # Create two children
-    child1 = np.ones(n_cities).astype(np.int16)
-    child2 = np.ones(n_cities).astype(np.int16)
-
-    # Choose two random crossover points
-    point1, point2 = sorted(np.random.choice(np.arange(n_cities), 2, replace=False))
-
-    # Copy the genes between the crossover points from the parents to the children
-    child1[point1:point2] = parent1[point1:point2]
-    child2[point1:point2] = parent2[point1:point2]
-
-    # Create mapping arrays for the genes outside the crossover points
-    mapping1 = -1 * np.ones(n_cities, dtype=np.int16)
-    mapping2 = -1 * np.ones(n_cities, dtype=np.int16)
-
-    # Fill in the mapping arrays based on the crossover points
-    mapping1[point1:point2] = parent2[point1:point2]
-    mapping2[point1:point2] = parent1[point1:point2]
-
-    # Perform the PMX crossover for the remaining genes
-    for i in range(n_cities):
-        if mapping1[i] == -1:
-            current_gene = parent1[i]
-            while current_gene in mapping2:
-                current_gene = mapping2[np.where(parent1 == current_gene)]
-            child1[i] = current_gene
-
-        if mapping2[i] == -1:
-            current_gene = parent2[i]
-            while current_gene in mapping1:
-                current_gene = mapping1[np.where(parent2 == current_gene)]
-            child2[i] = current_gene
-
-    # Add the alpha value to the child
-    new_alpha1 = np.array([parent1[-1]])
-    new_alpha2 = np.array([parent2[-1]])
-
-    # Concatenate the child to the alpha value
-    child1 = np.concatenate((child1, new_alpha1))
-    child2 = np.concatenate((child2, new_alpha2))
-
-    if not tourIsValid(child1[:-1]):
-        raise ValueError("Invalid tour during pmx crossover")
-    if not tourIsValid(child2[:-1]):
-        raise ValueError("Invalid tour during pmx crossover")
-
-    return child1, child2
-
-
-@njit
-def scx(parent1: np.ndarray, parent2: np.ndarray):
-
-    # Create a child
-    child1 = np.ones(n_cities).astype(np.int16)
-    child2 = np.ones(n_cities).astype(np.int16)
-
-    child1 = child1 * -1
-    child2 = child2 * -1
-
-    child1[0] = 0
-    child2[0] = 0
-
-    # Helper function to find the next city in the sequence
-    def find_next_city(parent: np.ndarray, child: np.ndarray, idx):
-        current_city = int(child[idx])
-        remaining_cities = np.array([i for i in parent[:-1] if i not in child]).astype(np.int16)
-        distances = np.array([distanceMatrix[current_city, city] for city in remaining_cities])
-        next_city = remaining_cities[np.argmin(distances)]
-        return next_city
-
-    # Construct the rest of the child sequences
-    for idx in range(1, n_cities):
-        child1[idx] = find_next_city(parent1, child1, idx)
-        child2[idx] = find_next_city(parent2, child2, idx)
-
-    # Add the alpha value to the child (average of the parents' alpha values)
-    new_alpha1 = np.array([parent1[-1]])
-    new_alpha2 = np.array([parent2[-1]])
-
-    # Concatenate the child to the alpha value
-    child1 = np.concatenate((child1, new_alpha1))
-    child2 = np.concatenate((child2, new_alpha2))
-
-    if not tourIsValid(child1[:-1]):
-        raise ValueError("Invalid tour during scx crossover")
-    if not tourIsValid(child2[:-1]):
-        raise ValueError("Invalid tour during scx crossover")
 
     return child1, child2
 
@@ -992,6 +928,49 @@ def crossover(selected: np.ndarray):
 
     return offspring
 
+"""
+@njit
+def scx(parent1: np.ndarray, parent2: np.ndarray):
+
+    # Create a child
+    child1 = np.ones(n_cities).astype(np.int16)
+    child2 = np.ones(n_cities).astype(np.int16)
+
+    child1 = child1 * -1
+    child2 = child2 * -1
+
+    child1[0] = 0
+    child2[0] = 0
+
+    # Helper function to find the next city in the sequence
+    def find_next_city(parent: np.ndarray, child: np.ndarray, idx):
+        current_city = int(child[idx])
+        remaining_cities = np.array([i for i in parent[:-1] if i not in child]).astype(np.int16)
+        distances = np.array([distanceMatrix[current_city, city] for city in remaining_cities])
+        next_city = remaining_cities[np.argmin(distances)]
+        return next_city
+
+    # Construct the rest of the child sequences
+    for idx in range(1, n_cities):
+        child1[idx] = find_next_city(parent1, child1, idx)
+        child2[idx] = find_next_city(parent2, child2, idx)
+
+    # Add the alpha value to the child (average of the parents' alpha values)
+    new_alpha1 = np.array([parent1[-1]])
+    new_alpha2 = np.array([parent2[-1]])
+
+    # Concatenate the child to the alpha value
+    child1 = np.concatenate((child1, new_alpha1))
+    child2 = np.concatenate((child2, new_alpha2))
+
+    if not tourIsValid(child1[:-1]):
+        raise ValueError("Invalid tour during scx crossover")
+    if not tourIsValid(child2[:-1]):
+        raise ValueError("Invalid tour during scx crossover")
+
+    return child1, child2
+"""
+
 # MUTATION
 
 @njit
@@ -1011,6 +990,26 @@ def insert_mutation(tour):
     tour = np.concatenate((tour[:ri[0]], np.array([removed]), tour[ri[0]:]))
 
     return tour
+
+@njit
+def mutation(offspring: np.ndarray):
+
+    # Apply the mutation to each row of the offspring array
+    for ii, _ in enumerate(offspring):
+
+        # Apply the mutation with probability alpha of the individual
+        if np.random.rand() < offspring[ii, n_cities]:
+
+            # Add a noise to the alpha value
+            offspring[ii, -1] = np.random.normal(offspring[ii, -1], 0.02)
+
+            if np.random.rand() < 0.2:
+                offspring[ii, :] = swap_mutation(offspring[ii, :])
+            else:
+                offspring[ii, :] = inversion_mutation(offspring[ii, :])
+                
+
+    return offspring
 
 @njit
 def scramble_mutation(tour):
@@ -1040,41 +1039,6 @@ def thrors_mutation(tour):
 
     return tour
 
-@njit
-def mutation(offspring: np.ndarray, alpha: float = 0.6):
-
-    # Apply the mutation to each row of the offspring array
-    for ii, _ in enumerate(offspring):
-        # Update alpha based on the success of the individual
-        #adapt_alpha(offspring[ii, :])
-
-        # Apply the mutation with probability alpha of the individual
-        if np.random.rand() < offspring[ii, n_cities]:
-            
-        # Apply the mutation with probability alpha
-        #if np.random.rand() < alpha:
-
-            # Add a noise to the alpha value
-            offspring[ii, -1] = np.random.normal(offspring[ii, -1], 0.02)
-                        
-            # Randomly select a mutation operator with different probabilities
-            #mutation_operator = np.random.choice([inversion_mutation,swap_mutation, scramble_mutation,
-            #    insert_mutation, thrors_mutation], p=mutation_probabilities)
-
-            if np.random.rand() < 0.2:
-                offspring[ii, :] = swap_mutation(offspring[ii, :])
-            else:
-                offspring[ii, :] = inversion_mutation(offspring[ii, :])
-                
-            
-
-            #offspring[ii, :] = mutation_operator(offspring[ii, :])
-
-            #if not tourIsValid(offspring[ii, :-1]):
-            #    print("offspring: ", offspring[ii, :-1])
-            #    raise ValueError("Invalid tour during mutation")
-
-    return offspring
 
 # ELIMINATION
 
@@ -1124,211 +1088,107 @@ def elimination_pro(joinedPopulation: np.ndarray):
     return survivors
 
 
-def fitness_sharing_elimination(joinedPopulation: np.ndarray, sigma_share: float):
-    
-    # Apply the objective function to each row of the joinedPopulation array
-    fvals = objf_pop(joinedPopulation)
+# VISUALIZATION
 
-    # Sort the individuals based on their objective function value
-    perm = np.argsort(fvals)
+def plot_results(meanObjectiveList: list, bestObjectiveList: list, alphaMeanList: list, iteration: int):
+        
+        # Calculate the mean for every iteration
+        meanObjectiveList = np.array(meanObjectiveList)
+        meanObjectiveList = np.mean(meanObjectiveList, axis=0)
+        
+        # Plot the mean and the best obj comparing the n_population populations
+        t = np.arange(0, iteration, 1)
 
-    # Initialize the fitness sharing values
-    fitness_sharing_values = np.zeros(len(joinedPopulation))
+        fig, axs = plt.subplots(1, 2)
 
-    # Calculate the fitness sharing values
-    for i in range(len(joinedPopulation)):
-        for j in range(len(joinedPopulation)):
-            if i != j:
-                distance = distance_from_to(joinedPopulation[i, :-1], joinedPopulation[j, :-1])
-                fitness_sharing_values[i] += distance
-
-    # Calculate the shared fitness values
-    shared_fitness = fvals / fitness_sharing_values
-
-    # Sort the individuals based on their shared fitness value
-    perm = np.argsort(shared_fitness)
-
-    # Select the best lambda individuals
-    survivors = joinedPopulation[perm[0:lambda_], :]
-
-    return survivors
+        # Set the dimensions of the figure
+        fig.set_figheight(10)
+        fig.set_figwidth(15)
 
 
-def distance_from_to(first_ind: np.ndarray, second_ind: np.ndarray):
+        for i in range(n_population):
+            axs[0].plot(t, bestObjectiveList[i], label='Best ' + str(i))
+            axs[0].set_title('Best objective function value')
+            axs[0].set(xlabel='Iteration', ylabel='Objective function value')
 
-    # Convert NumPy arrays to sets for easy intersection calculation
-    edges_first = set(first_ind)
-    edges_second = set(second_ind)
+            axs[1].plot(t, alphaMeanList[i], label='Alpha ' + str(i))
+            axs[1].set_title('Mean of alpha values')
+            axs[1].set(xlabel='Iteration', ylabel='Alpha value')
 
-    # Calculate the set intersection
-    intersection = edges_first.intersection(edges_second)
+            #Draw a vertical line every iterationIneraction iterations
+            for j in range(1,iteration//iterationIneraction + 1):
+                axs[0].axvline(x=iterationIneraction*j, color='grey', linestyle='--')
+                axs[1].axvline(x=iterationIneraction*j, color='grey', linestyle='--')
 
-    # Calculate the distance by subtracting the size of the intersection set
-    # from the total number of edges in the first individual
-    num_edges_first = len(first_ind)
-    distance = num_edges_first - len(intersection)
+        # Plot the mean
+        axs[0].plot(t, meanObjectiveList, label='Mean')
+        axs[0].legend()
+        axs[1].legend()
 
-    return distance
 
-@njit
-def build_cumulatives(order: np.ndarray, 
-                      length: int):
-    order = order.astype(np.int16)
+        plt.show()
 
-    cum_from_0_to_first = np.zeros((length))
-    cum_from_second_to_end = np.zeros((length))
-    cum_from_second_to_end[length - 1] = distanceMatrix[order[-1], order[0]]
-    for i in range(1, length - 1):
-        cum_from_0_to_first[i] = cum_from_0_to_first[i - 1] \
-            + distanceMatrix[order[i-1], order[i]]        
-        cum_from_second_to_end[length - 1 - i] = cum_from_second_to_end[length - i] \
-            + distanceMatrix[order[length -1 - i], order[length - i]]
-    return cum_from_0_to_first, cum_from_second_to_end
 
-@njit
-def two_opt(population: np.ndarray):
-    # Apply the local search operator to each row of the population array
-    for ii in range(population.shape[0]):
-        new = operator_2_opt(population[ii, :-1])
-        if new is not None:
-                population[ii, :-1] = new
-    
-    return population
 
-@njit
-def operator_2_opt(order: np.ndarray):
-    """Local search operator, which makes use of 2-opt. Swap two edges within a cycle."""
 
-    order = order.astype(np.int16)
 
-    best_fitness = objf(order)
-    length = len(order)
-    best_combination = (0, 0)
-
-    cum_from_0_to_first, cum_from_second_to_end = build_cumulatives(order, length)
-    if cum_from_second_to_end[-1] > np.inf:
-        return None
-
-    for first in range(1, length - 2):
-        fit_first_part = cum_from_0_to_first[first-1]
-        if fit_first_part > np.inf or fit_first_part > best_fitness:
-            break
-        fit_middle_part = 0.0
-        for second in range(first + 2, length):
-            fit_middle_part += distanceMatrix[order[second-1],order[second-2]]
-            if fit_middle_part > np.inf:
-                break
-            
-            fit_last_part = cum_from_second_to_end[second]
-            if fit_last_part > np.inf:
-                continue
-
-            bridge_first = distanceMatrix[order[first-1],order[second-1]]
-            bridge_second = distanceMatrix[order[first],order[second]]
-            temp = fit_first_part + fit_middle_part
-            if temp > best_fitness:
-                continue
-            new_fitness = temp + fit_last_part + bridge_first + bridge_second
-            
-            if new_fitness < best_fitness:
-                best_combination = (first, second)
-                best_fitness = new_fitness
-    best_first, best_second = best_combination
-    if best_first == 0: # Initial individual was best
-        return None
-    new_order = np.copy(order)
-    new_order[best_first:best_second] = new_order[best_first:best_second][::-1]
-
-    if not tourIsValid(new_order):
-        print("new_order: ", new_order)
-        raise ValueError("Invalid tour during 2-opt local search")
-
-    return new_order
 
 ########################################################################################
         
-
 # Modify the class name to match your student number.
 reporter = Reporter.Reporter("r0123456")
 
-
-lambda_=25 # x 4
+# PARAMETERS
+lambda_=50 # x 4
 mu=lambda_*2
-#mutation_probabilities = np.array([0.55, 0.35, 0.05, 0.05, 0.0]) # Sum must be 1
 alphaList = np.array([0.7, 0.7, 0.7, 0.7]) 
 k_for_selection = np.array([2, 3, 4, 5])
-max_iterations=2000
-MAX_DIFFERENT_BEST_SOLUTIONS = max_iterations // 4
-variancePopulation = 0
+max_iterations= 10000
+MAX_DIFFERENT_BEST_SOLUTIONS = 100
+
+# ISLAND MODEL
 n_population = 4
-
-
-file_path = "tour00.csv"
-file = open(file_path)
-distanceMatrix = np.loadtxt(file, delimiter=",")
-n_cities = distanceMatrix.shape[0]
-file.close()
-
 iterationIneraction = 50
+
+
+file_paths = ["tour50.csv", "tour100.csv", "tour200.csv", "tour500.csv", "tour750.csv", "tour1000.csv"]
+
+file = open(file_paths[0])
+distanceMatrix = np.loadtxt(file, delimiter=",")
+file.close()
+n_cities = distanceMatrix.shape[0]
+
+
 
 results = []
 
 # Main 
 if __name__ == "__main__":
-    print("File: ", file_path)
+    print("File: ", file.name)
 
 
-    start_time = time.time()
-    best_tour, best_obj =  optimize_island(verbose=True)
-    end_time = time.time()
+    #start_time = time.time()
+    #best_tour, best_obj, bestObjectiveList, bestSolutionList, meanObjectiveList, alphaMeanList, iteration =  optimize_island(verbose=True)
+    #end_time = time.time()
 
-    print("Best tour: ", best_tour)
-    print("Best objective function value: ", best_obj, " Checked: ", objf(best_tour), " Valid: ", tourIsValid(best_tour))
-    print("Time: ", end_time - start_time)
+    #print("Best tour: ", best_tour)
+    #print("Best objective function value: ", best_obj, " Checked: ", objf(best_tour), " Valid: ", tourIsValid(best_tour))
+    #print("Time: ", end_time - start_time)
 
+    #plot_results(meanObjectiveList, bestObjectiveList, alphaMeanList, iteration)
 
-    # Specify the number of iterations
-    #n_iter = 100
+    # Do 100 runs and create an histogram of the best objective function values
+    n_runs = 10
+    for i in range(n_runs):
+        print("Run: ", i)
+        best_tour, best_obj, bestObjectiveList, bestSolutionList, meanObjectiveList, alphaMeanList, iteration =  optimize_island(verbose=False, testMode=True)
+        results.append(best_obj)
 
-    #for i in range(n_iter):
-        # Run your function
-    #    best_tour, best_obj =  optimize_island(verbose=False, testMode=True)
-
-        # Print the results
-    #    print("---------------------------------------------")
-    #    print("Best objective function value: ", best_obj, " Checked: ", objf(best_tour), " Valid: ", tourIsValid(best_tour))
-
-    #    results.append(best_obj)
-
-    # Define the parameter distributions
-    #param_distributions = {
-    #    'mutation_probabilities': [[np.random.uniform(0.01, 0.9) for _ in range(5)] for _ in range(n_iter)],
-    #    'k_for_selection': [[ np.random.randint(2, 6) for _ in range(4)] for _ in range(n_iter)],
-    #    'lambda_': [np.random.randint(20, 200) for _ in range(n_iter)]
-    #}
-
-    # Normalize the probabilities
-    #for i in range(n_iter):
-    #    param_distributions['mutation_probabilities'][i] = param_distributions['mutation_probabilities'][i] / np.sum(param_distributions['mutation_probabilities'][i])
-
-    # Create the parameter sampler
-    #sampler = ParameterSampler(param_distributions, n_iter=n_iter, random_state=0)
-
-    # For each combination of parameters
-    #for params in sampler:
-        # Set the parameters
-    #    mutation_probabilities = params['mutation_probabilities']
-    #    k_for_selection = params['k_for_selection']
-    #    lambda_ = params['lambda_']
-
-        # Print the results
-    #    print("---------------------------------------------")
-    #    print("Parameters: ", params)
-
-        # Run your function
-    #    best_tour, best_obj =  optimize_island(verbose=False, testMode=True)
-
-    #    print("Best objective function value: ", best_obj, " Checked: ", objf(best_tour), " Valid: ", tourIsValid(best_tour))
+    plt.hist(results, bins=20, color='c', edgecolor='k', alpha=0.65)
+    plt.title("Histogram of the best objective function values")
+    plt.xlabel("Objective function value")
+    plt.ylabel("Frequency")
+    plt.show()
 
 
 
