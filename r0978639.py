@@ -350,13 +350,6 @@ def objf_pop(population : np.ndarray):
 @njit
 def objf(tour : np.ndarray):
 
-    #if not tourIsValid(tour):
-    #    print("tour: ", tour)
-    #    raise ValueError("Invalid tour during objf")
-
-    #if tour.shape[0] != n_cities:
-    #    raise ValueError("The number of cities must be equal to the number of rows of the distance matrix")
-
     # Convert float64 indices to integers
     tour = tour.astype(np.int16)
 
@@ -499,12 +492,8 @@ def initialize(my_alpha: float) -> np.ndarray:
             new_individual = generate_individual_nearest_neighbor()
         elif i >= lambda_*0.02 and i < lambda_*0.04:
             new_individual = generate_individual_nearest_neighbor_more_index(3)
-        #elif i >= lambda_*0.04 and i < lambda_*0.06:
-        #    new_individual = generate_individual_nearest_neighbor_more_index(5)
         elif i >= lambda_*0.06 and i < lambda_*0.08:
             new_individual = generate_individual_nearest_neighbor_more_index(7)
-        #elif i >= lambda_*0.08 and i < lambda_*0.10:
-        #    new_individual = generate_individual_nearest_neighbor_more_index(10)
         else:
             new_individual = generate_individual_random()
 
@@ -518,10 +507,6 @@ def initialize(my_alpha: float) -> np.ndarray:
             # Evaluate the individual with the objective function
             obj = objf(new_individual)
             max_tries -= 1
-
-        if not tourIsValid(new_individual):
-            print("new_individual: ", new_individual)
-            raise ValueError("Invalid tour during initialization")
 
         # Create alpha with gaussian distribution
         alpha = np.array([np.random.normal(my_alpha, 0.03)])
@@ -695,10 +680,6 @@ def operator_2_opt(order: np.ndarray):
         return None
     new_order = np.copy(order)
     new_order[best_first:best_second] = new_order[best_first:best_second][::-1]
-
-    if not tourIsValid(new_order):
-        print("new_order: ", new_order)
-        raise ValueError("Invalid tour during 2-opt local search")
 
     return new_order
 
@@ -895,11 +876,6 @@ def uox(parent1: np.ndarray, parent2: np.ndarray):
     child1 = np.concatenate((child1, new_alpha1))
     child2 = np.concatenate((child2, new_alpha2))
 
-    if not tourIsValid(child1[:-1]):
-        raise ValueError("Invalid tour during uox crossover")
-    if not tourIsValid(child2[:-1]):
-        raise ValueError("Invalid tour during uox crossover")
-
     return child1, child2
 
 @njit
@@ -913,16 +889,8 @@ def crossover(selected: np.ndarray):
         ri = sorted(np.random.choice(np.arange(1, lambda_), 2, replace=False))
 
         # Perform crossover
-        #offspring[ii, :], offspring[ii + lambda_, :] = pmx(selected[ri[0], :], selected[ri[1], :])
-        #offspring[ii, :], offspring[ii + lambda_, :] = pmx2(selected[ri[0], :], selected[ri[1], :])
-        #offspring[ii, :], offspring[ii + lambda_, :] = scx(selected[ri[0], :], selected[ri[1], :]) TOO EXPENSIVE
-        #offspring[ii, :], offspring[ii + lambda_, :] = uox(selected[ri[0], :], selected[ri[1], :])
-
-        # Chose randomly the crossover operator
-        #crossover_operator = np.random.choice([pmx, pmx2, scx, uox], p=[0.4, 0.1, 0.1, 0.4])
-        #offspring[ii, :], offspring[ii + lambda_, :] = crossover_operator(selected[ri[0], :], selected[ri[1], :])
-        #if np.random.rand() < 0.51:
-        #offspring[ii, :], offspring[ii + lambda_, :] = pmx(selected[ri[0], :], selected[ri[1], :])
+        #if np.random.rand() < 0.5:
+        #    offspring[ii, :], offspring[ii + lambda_, :] = pmx(selected[ri[0], :], selected[ri[1], :])
         #else:
         offspring[ii, :], offspring[ii + lambda_, :] = uox(selected[ri[0], :], selected[ri[1], :])
 
@@ -1033,10 +1001,6 @@ def thrors_mutation(tour):
 
     tour[ri[0]], tour[ri[1]], tour[ri[2]] = tour[ri[1]], tour[ri[2]], tour[ri[0]]
 
-    if not tourIsValid(tour):
-        print("tour: ", tour)
-        raise ValueError("Invalid tour during thrors mutation") 
-
     return tour
 
 
@@ -1070,6 +1034,7 @@ def elimination_pro(joinedPopulation: np.ndarray):
     random_survivors = joinedPopulation[np.random.choice(perm[n_best:], 4*n_best, replace=False), :]
 
     #Remove duplicates
+    best_survivors = np.unique(best_survivors, axis=0)
     random_survivors = np.unique(random_survivors, axis=0)
 
     # Generate  individuals randomly
@@ -1128,23 +1093,52 @@ def plot_results(meanObjectiveList: list, bestObjectiveList: list, alphaMeanList
 
         plt.show()
 
+# TEST
+        
+def test():
+    n_runs = 500
+    for i in range(n_runs):
+        print("Run: ", i)
+        best_tour, best_obj, bestObjectiveList, bestSolutionList, meanObjectiveList, alphaMeanList, iteration =  optimize_island(verbose=False, testMode=True)
+        if not tourIsValid(best_tour):
+            print("Invalid tour!")
+        results.append(best_obj)
 
+    plt.hist(results, bins=20, color='c', edgecolor='k', alpha=0.65)
+    plt.title("Histogram of the best objective function values")
+    plt.xlabel("Objective function value")
+    plt.ylabel("Frequency")
+    plt.show()
 
+    # Compute the mean of the best objective function values
+    print("Mean of the best objective function values: ", np.mean(results))
+    print("Standard deviation of the best objective function values: ", np.std(results))
+
+def individual_test():
+    start_time = time.time()
+    best_tour, best_obj, bestObjectiveList, bestSolutionList, meanObjectiveList, alphaMeanList, iteration =  optimize_island(verbose=True)
+    end_time = time.time()
+
+    print("Best tour: ", best_tour)
+    print("Best objective function value: ", best_obj, " Checked: ", objf(best_tour), " Valid: ", tourIsValid(best_tour))
+    print("Time: ", end_time - start_time)
+
+    plot_results(meanObjectiveList, bestObjectiveList, alphaMeanList, iteration)
 
 
 
 ########################################################################################
         
 # Modify the class name to match your student number.
-reporter = Reporter.Reporter("r0123456")
+reporter = Reporter.Reporter("r0978639")
 
 # PARAMETERS
-lambda_=50 # x 4
+lambda_=50 # x 4 (25 for every population)
 mu=lambda_*2
 alphaList = np.array([0.7, 0.7, 0.7, 0.7]) 
 k_for_selection = np.array([2, 3, 4, 5])
 max_iterations= 10000
-MAX_DIFFERENT_BEST_SOLUTIONS = 100
+MAX_DIFFERENT_BEST_SOLUTIONS = 300
 
 # ISLAND MODEL
 n_population = 4
@@ -1165,47 +1159,14 @@ results = []
 # Main 
 if __name__ == "__main__":
     print("File: ", file.name)
+    test()
 
-
-    #start_time = time.time()
-    #best_tour, best_obj, bestObjectiveList, bestSolutionList, meanObjectiveList, alphaMeanList, iteration =  optimize_island(verbose=True)
-    #end_time = time.time()
-
-    #print("Best tour: ", best_tour)
-    #print("Best objective function value: ", best_obj, " Checked: ", objf(best_tour), " Valid: ", tourIsValid(best_tour))
-    #print("Time: ", end_time - start_time)
-
-    #plot_results(meanObjectiveList, bestObjectiveList, alphaMeanList, iteration)
-
-    # Do 100 runs and create an histogram of the best objective function values
-    n_runs = 10
-    for i in range(n_runs):
-        print("Run: ", i)
-        best_tour, best_obj, bestObjectiveList, bestSolutionList, meanObjectiveList, alphaMeanList, iteration =  optimize_island(verbose=False, testMode=True)
-        results.append(best_obj)
-
-    plt.hist(results, bins=20, color='c', edgecolor='k', alpha=0.65)
-    plt.title("Histogram of the best objective function values")
-    plt.xlabel("Objective function value")
-    plt.ylabel("Frequency")
-    plt.show()
-
-
-
-
-
-# Benchmark results to beat:
-# PMX
-# tour50: simple greedy heuristic 27723     (TARGET 24k)    (BEST 26.2k)    alphaList = np.array([0.7, 0.7, 0.7, 0.7]) k_for_selection = np.array([2, 3, 4, 5])
-# tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 78.9k)    alphaList = np.array([0.7, 0.7, 0.7, 0.7]) k_for_selection = np.array([2, 3, 4, 5])
-# tour200: simple greedy heuristic 39745    (TARGET 35k)    (BEST 37.1k)    alphaList = np.array([0.7, 0.7, 0.7, 0.7]) k_for_selection = np.array([2, 3, 4, 5])
-# tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 148.5K)   alphaList = np.array([0.7, 0.7, 0.7, 0.7]) k_for_selection = np.array([2, 3, 4, 5])
-#                                                           (BEST 148k)     alphaList = np.array([0.55, 0.60, 0.65, 0.70]) k_for_selection = np.array([2, 3, 4, 5])
-#                                                                           alphaList = np.array([0.55, 0.55, 0.62, 0.63])  k_for_selection = np.array([2, 3, 4, 5])
-# tour750: simple greedy heuristic 197541  (TARGET 177k)   (BEST 192.0k)    alphaList =np.array([0.7, 0.7, 0.7, 0.7]) k_for_selection = np.array([2, 3, 4, 5])
-#                                                          (BEST 189.9k)    alphaList =np.array([0.75, 0.75, 0.75, 0.75]) k_for_selection = np.array([2, 3, 4, 5])
-# tour1000: simple greedy heuristic 195848 (TARGET 176k)   (BEST 193k)      alphaList = np.array([0.50, 0.55, 0.63, 0.53]) k_for_selection = np.array([2, 3, 4, 4])
-#                                                          (BEST 193.7k)    alphaList =np.array([0.7, 0.7, 0.7, 0.7]) k_for_selection = np.array([2, 3, 4, 5])
-#                                                          (BEST 187.5k)    alphaList =np.array([0.8, 0.8, 0.8, 0.8]) k_for_selection = np.array([2, 3, 4, 5]) (PMX and UOX)
-#                                                          (BEST 192.1k)    alphaList =np.array([0.8, 0.8, 0.8, 0.8]) k_for_selection = np.array([2, 3, 4, 5]) (PMX and UOX) and Roulette Wheel Selection
-
+# Benchmark results:
+# tour50: simple greedy heuristic 27723     (TARGET 24k)    (BEST 25668)
+    # Mean of the best objective function values:                   25768.2410072685
+    # Standard deviation of the best objective function values:     273.81096485796326
+# tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 78707)   
+# tour200: simple greedy heuristic 39745    (TARGET 35k)    (BEST 36985)   
+# tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 131847)  
+# tour750: simple greedy heuristic 197541   (TARGET 177k)   (BEST 172032)
+# tour1000: simple greedy heuristic 195848  (TARGET 176k)   (BEST 195.3k)
