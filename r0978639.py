@@ -75,7 +75,7 @@ class r0978639:
                                                     [self.mu]*self.n_population, 
                                                     self.k_for_selection, 
                                                     self.alphaList))
-            
+                            
 
             # For each population
             for i in range(self.n_population):      
@@ -451,16 +451,14 @@ def initialize(my_alpha: float, distanceMatrix: np.ndarray, n_cities: int, lambd
 
     for i in range(lambda_):
 
-        if i < lambda_*0.005:
+        if i == 0:
             new_individual = generate_individual_greedy(distanceMatrix, n_cities)
-        elif i >= lambda_*0.005 and i < lambda_*0.01:
+        elif i == 1:
             new_individual = generate_individual_greedy_reverse(distanceMatrix, n_cities)
-        elif i >= lambda_*0.01 and i < lambda_*0.02:
+        elif i == 2:
             new_individual = generate_individual_nearest_neighbor(distanceMatrix, n_cities)
-        elif i >= lambda_*0.02 and i < lambda_*0.04:
-            new_individual = generate_individual_nearest_neighbor_more_index(3,distanceMatrix, n_cities)
-        elif i >= lambda_*0.06 and i < lambda_*0.08:
-            new_individual = generate_individual_nearest_neighbor_more_index(7,distanceMatrix, n_cities)
+        elif i == 3:
+            new_individual = generate_individual_nearest_neighbor_more_index(5,distanceMatrix, n_cities)
         else:
             new_individual = generate_individual_random(n_cities)
 
