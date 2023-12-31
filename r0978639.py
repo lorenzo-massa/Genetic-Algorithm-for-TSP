@@ -270,7 +270,7 @@ def optimize_island(verbose=False, testMode=False):
         #  - the best objective function value of the population
         #  - a 1D numpy array in the cycle notation containing the best solution
         #    with city numbering starting from 0
-        timeLeft = reporter.report(meanObjective, bestObjective, bestSolution)
+        timeLeft = reporter.report(meanObjective, bestObjective, bestSolution.astype(np.int16))
 
         # Print progress
         if verbose == True and iteration % 5 == 0:
@@ -302,6 +302,7 @@ def optimize_island(verbose=False, testMode=False):
         iteration += 1
 
     # Return the best solution
+    bestSolution = bestSolution.astype(np.int16)
     return bestSolution, bestObjective, bestObjectiveList, bestSolutionList, meanObjectiveList, alphaMeanList, iteration+1
 
 def process_island(population):
@@ -1055,7 +1056,40 @@ def elimination_pro(joinedPopulation: np.ndarray):
 
 # VISUALIZATION
 
-def plot_results(meanObjectiveList: list, bestObjectiveList: list, alphaMeanList: list, iteration: int):
+def plot_results(meanObjectiveList: list, bestObjectiveList: list, iteration: int):
+
+    #Remove the last MAX_DIFFERENT_BEST_SOLUTIONS values
+    iteration = iteration - MAX_DIFFERENT_BEST_SOLUTIONS + 50
+    for i in range(n_population):
+        bestObjectiveList[i] = bestObjectiveList[i][:iteration]
+        meanObjectiveList[i] = meanObjectiveList[i][:iteration]
+            
+    # Calculate the mean for every iteration
+    meanObjectiveList = np.array(meanObjectiveList)
+    meanObjectiveList = np.mean(meanObjectiveList, axis=0)
+    
+    # Plot the mean and the best obj comparing the n_population populations
+    t = np.arange(0, iteration, 1)
+    
+    #Plot just one graph
+    fig, axs = plt.subplots(1, 1)
+
+    for i in range(n_population):
+        axs.plot(t, bestObjectiveList[i], label='Best ' + str(i))
+        axs.set_title('Best objective function value')
+        axs.set(xlabel='Iteration', ylabel='Objective function value')
+
+        #Draw a vertical line every iterationIneraction iterations
+        for j in range(1,iteration//iterationIneraction + 1):
+            axs.axvline(x=iterationIneraction*j, color='grey', linestyle='--')
+
+    # Plot the mean
+    #axs.plot(t, meanObjectiveList, label='Mean')
+    axs.legend()
+
+    plt.show()
+
+def plot_results_with_alpha(meanObjectiveList: list, bestObjectiveList: list, alphaMeanList: list, iteration: int):
         
         # Calculate the mean for every iteration
         meanObjectiveList = np.array(meanObjectiveList)
@@ -1090,7 +1124,6 @@ def plot_results(meanObjectiveList: list, bestObjectiveList: list, alphaMeanList
         axs[0].legend()
         axs[1].legend()
 
-
         plt.show()
 
 # TEST
@@ -1123,27 +1156,14 @@ def individual_test():
     print("Best objective function value: ", best_obj, " Checked: ", objf(best_tour), " Valid: ", tourIsValid(best_tour))
     print("Time: ", end_time - start_time)
 
-    plot_results(meanObjectiveList, bestObjectiveList, alphaMeanList, iteration)
-
+    #plot_results_with_alpha(meanObjectiveList, bestObjectiveList, alphaMeanList, iteration)
+    plot_results(meanObjectiveList, bestObjectiveList, iteration)
 
 
 ########################################################################################
         
 # Modify the class name to match your student number.
 reporter = Reporter.Reporter("r0978639")
-
-# PARAMETERS
-lambda_=50 # x 4 (25 for every population)
-mu=lambda_*2
-alphaList = np.array([0.7, 0.7, 0.7, 0.7]) 
-k_for_selection = np.array([2, 3, 4, 5])
-max_iterations= 10000
-MAX_DIFFERENT_BEST_SOLUTIONS = 300
-
-# ISLAND MODEL
-n_population = 4
-iterationIneraction = 50
-
 
 file_paths = ["tour50.csv", "tour100.csv", "tour200.csv", "tour500.csv", "tour750.csv", "tour1000.csv"]
 
@@ -1152,6 +1172,18 @@ distanceMatrix = np.loadtxt(file, delimiter=",")
 file.close()
 n_cities = distanceMatrix.shape[0]
 
+# PARAMETERS
+lambda_= 50 if n_cities < 501 else 25
+mu=lambda_*2
+alphaList = np.array([0.7, 0.7, 0.7, 0.7]) 
+k_for_selection = np.array([2, 3, 4, 5])
+max_iterations= 10000
+MAX_DIFFERENT_BEST_SOLUTIONS = 1000
+
+# ISLAND MODEL
+n_population = 4
+iterationIneraction = 50
+
 
 
 results = []
@@ -1159,14 +1191,14 @@ results = []
 # Main 
 if __name__ == "__main__":
     print("File: ", file.name)
-    test()
+    individual_test()
 
 # Benchmark results:
 # tour50: simple greedy heuristic 27723     (TARGET 24k)    (BEST 25668)
     # Mean of the best objective function values:                   25768.2410072685
     # Standard deviation of the best objective function values:     273.81096485796326
-# tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 78707)   
+# tour100: simple greedy heuristic 90851    (TARGET 81k)    (BEST 77936)   
 # tour200: simple greedy heuristic 39745    (TARGET 35k)    (BEST 36985)   
-# tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 131847)  
-# tour750: simple greedy heuristic 197541   (TARGET 177k)   (BEST 172032)
-# tour1000: simple greedy heuristic 195848  (TARGET 176k)   (BEST 195.3k)
+# tour500: simple greedy heuristic 157034   (TARGET 141k)   (BEST 129135)  
+# tour750: simple greedy heuristic 197541   (TARGET 177k)   (BEST 171437)
+# tour1000: simple greedy heuristic 195848  (TARGET 176k)   (BEST 194852)
