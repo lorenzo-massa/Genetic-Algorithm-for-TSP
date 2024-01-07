@@ -12,7 +12,7 @@ from numba import jit
 class r0978353:
     """ Parameters """
     def __init__(self):
-        reporter = Reporter.Reporter(__class__.__name__)
+        self.reporter = Reporter.Reporter(__class__.__name__)
 
     def optimize(self):
         warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -71,8 +71,8 @@ class r0978353:
 
             # Elimination and Local Search
             startelemination = time.time()
-            population = elimination_withoutLocal(joinedPopulation) # TODO put local search before elimination
-            # population = elimination_localSearch(joinedPopulation, countSameBestSol, i, tuning)
+            # population = elimination_withoutLocal(joinedPopulation) # TODO put local search before elimination
+            population = elimination_localSearch(joinedPopulation, countSameBestSol, i, tuning)
             elimtime = time.time() - startelemination
 
             # Compute fitness of this current iteration
@@ -90,11 +90,12 @@ class r0978353:
             # var = compute_variance(population)
             # var_list.append(var)
 
+            timeLeft = self.reporter.report(mean[i], best[i], bestSolution)
             print(f'{i}) {timePassed: .2f}s:\t Mean fitness = {mean[i]: .2f} \t Best fitness = {best[i]: .2f}, variance = {var: .2f}, \tpop shape = {population.shape}\t selection = {selectiontime : .2f}s, cross = {crossstime: .2f}s, mutate = {mutatetime: .2f}s, elim = {elimtime: .2f}s')
             i=i+1
 
             # Check for termination  TODO FUNCTION
-            timeLeft = 300 - timePassed
+            # timeLeft = 300 - timePassed
             if(i % 20 == 0):
                 print("---- Time left: ", int(timeLeft))
             # Termination criteria 1: time limit
@@ -122,12 +123,12 @@ class r0978353:
         print(f'Tot time: {totTime: .2f}s')
 
         return mean, best[-1], bestSolution[-1], i-1
+
 def read_from_file(filename):
     file = open(filename)
     distanceMatrix = np.loadtxt(file, delimiter=",")
     file.close()
     return distanceMatrix
-
 
 def initialization_mix() -> np.ndarray:
     # Create a matrix of random individuals
@@ -137,33 +138,22 @@ def initialization_mix() -> np.ndarray:
         print("individual num: ", i)
         if i < 2:
             new_individual = random_cycle()
-            if not tourIsCorrect(new_individual):
-                print("new_individual: ", new_individual)
         elif i >= 2 and i<4:
             new_individual = random_cycle_inverse()[::-1]
-            if not tourIsCorrect(new_individual):
-                print("new_individual: ", new_individual)
         elif i >= 4 and i < 5:
             new_individual = generate_individual_greedy()
-            if not tourIsCorrect(new_individual):
-                print("new_individual: ", new_individual)
         elif i >= 5 and i < 7:
             new_individual = generate_individual_greedy_inverse()
-            if not tourIsCorrect(new_individual):
-                print("new_individual: ", new_individual)
         elif i >= 7 and i < lambdaa * 0.2:
             new_individual = generate_individual_nearest_neighbor()
-            if not tourIsCorrect(new_individual):
-                print("new_individual: ", new_individual)
         elif i >= lambdaa * 0.2 and i < lambdaa * 0.4:
             new_individual = generate_individual_nearest_neighbor_indices( 2)
-            if not tourIsCorrect(new_individual):
-                print("new_individual: ", new_individual)
         else:
             new_individual = generate_individual_random()
-            if not tourIsCorrect(new_individual):
+
+        if not tourIsCorrect(new_individual):
                 print("new_individual: ", new_individual)
-        
+
         # Evaluate the individual with the objective function
         obj = fitness(new_individual)
 
@@ -466,12 +456,11 @@ def mutation(offspring, alpha):
 def mutate(offspring, mutationratios):
     for i in range(len(offspring)):
         if random.random() <= alpha:        # TODO SELF ADAPTIVITY FOR ALPHA
-            
             mutation_operator = np.random.choice([mutation_inversion,
                                                   mutation_swap,
                                                   mutation_scramble, 
                                                   mutation_insert], 
-                                                  p=[0.55, 0.35, 0.05, 0.05])
+                                                  p=mutationratios)
             
             offspring[i, :] = mutation_operator(offspring[i, :])
     return offspring
@@ -510,7 +499,6 @@ def mutation_inversion( path):
     path[ri[0]:ri[1]] = path[ri[0]:ri[1]][::-1]
     return path   
 
-@jit(nopython=True)
 def elimination_localSearch( joinedPopulation, countSameBestSol, i, tuning):
     # Apply the objective function to each row of the joinedPopulation array
     fvals = pop_fitness(joinedPopulation)
@@ -545,7 +533,6 @@ def elimination_localSearch( joinedPopulation, countSameBestSol, i, tuning):
     # Concatenate the best and random survivors
     survivors = np.vstack((best_survivors, random_survivors))
     return survivors
-
 
 def elimination_withoutLocal( joinedPopulation: np.ndarray):
     # Apply the objective function to each row of the joinedPopulation array
@@ -670,24 +657,25 @@ def improve_subset_shuffle( tour: np.ndarray, k: int):
 
     return old_tour
 
-def objf_path( tour: np.ndarray):
+@jit(nopython=True)
+def objf_path(path: np.ndarray):
     # Convert float64 indices to integers
-    tour = tour.astype(np.int64)
+    path = path.astype(np.int64)
 
     # Apply the objective function to each row of the cities array
     sum_distance = 0
-    for ii in range(tour.shape[0] - 1):
+    for i in range(path.shape[0] - 1):
         # Sum the distances between the cities
-        sum_distance += distanceMatrix[tour[ii], tour[ii + 1]]
+        sum_distance += distanceMatrix[path[i], path[i + 1]]
     return sum_distance
 
 @jit(nopython=True)
-def objf_permutation( permutations: np.ndarray):
+def objf_permutation(permutations: np.ndarray):
     # Apply the objective function to each row of the permutations array
     obj = np.zeros(permutations.shape[0])
 
-    for ii in range(permutations.shape[0]):
-        obj[ii] = objf_path(permutations[ii, :])
+    for i in range(permutations.shape[0]):
+        obj[i] = objf_path(permutations[i, :])
     return obj
 
 @jit(nopython=True)
@@ -862,9 +850,9 @@ def plot_graph(mean, best):
 # --------------------------------------------------------- #
 
 # Parameters
-alpha = 0.2                                      # Mutation probability
-mutationratios = [10, 1, 1, 20]                  # swap, insert, scramble, inversion -> mutation ratio
-lambdaa = 100                                      # Population size
+alpha = 0.5                                      # Mutation probability
+mutationratios = [1, 0, 0, 0]                    # inversion, swap, scramble, insert
+lambdaa = 100                                    # Population size
 mu = lambdaa * 2                                 # Offspring size       
 k = 3                                            # Tournament selection
 numIters = 2000                                  # Maximum number of iterations
@@ -876,7 +864,7 @@ fileName= "data/tour50.csv"
 distanceMatrix = read_from_file(fileName)
 numCities = distanceMatrix.shape[0]        
 
-iterations = range(2)
+iterations = range(100)
 results_iterations = []
 if __name__ == "__main__":
     for i in iterations:
@@ -888,12 +876,17 @@ if __name__ == "__main__":
     
     # Print all the results
     print("\n", str(fileName))
-    sum = 0
     for i, result in enumerate(results_iterations):
         print("Result ", i, ": ", result)
-        sum += result
-    print("mean of the results: ", sum/len(iterations))
+    print("mean of the results: ", np.mean(results_iterations))
+    print("Best results found: ", np.min(results_iterations))
 
+# Plot histogram
+plt.hist(results_iterations, bins=20, color='blue', edgecolor='black')
+plt.xlabel('Best Fitness')
+plt.ylabel('Count of Iterations')
+plt.title('Histogram of Best Fitness Values')
+plt.show()
 
 
 

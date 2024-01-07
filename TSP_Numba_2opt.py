@@ -150,7 +150,7 @@ def initialization_mix() -> np.ndarray:
             new_individual = generate_individual_random()
 
         if not tourIsCorrect(new_individual):
-            print("new_individual: ", new_individual)
+            raise ValueError("Invalid tour during initialization")
 
         # Evaluate the individual with the objective function
         obj = fitness(new_individual)
@@ -203,12 +203,14 @@ def compute_variance(population):
 
     return total_distance / (num_individuals * (num_individuals - 1) / 2)
 
+# no numba
 def local_search_subset( population, k):
     # Apply the best subset solution to each row of the population array
     for ii in range(population.shape[0]):
         population[ii, :] = improve_subset_permutations(population[ii, :], k)
     return population
 
+# no numba
 def local_search_shuffle_subset( population, k):
     # Apply the best subset solution to each row of the population array
     for ii in range(population.shape[0]):
@@ -230,7 +232,6 @@ def selection_kTour( population, k):
         selected[i, :] = population[randIndices[best], :]
 
         if not tourIsCorrect(selected[i, :]):
-            print("selected: ", selected[i, :])
             raise ValueError("Invalid tour during selection")
     return selected
 
@@ -248,11 +249,13 @@ def selection_topK( population, k):
         # and sample an element from this reduced (multi)set
         sampled_number = np.random.choice(sorted[:int(k)])
         selected[i, :] = population[sampled_number, :]
+        if not tourIsCorrect(selected[i, :]):
+            raise ValueError("Invalid tour during selection")
     return selected
 
 """ Perform PMX-crossover using all of the given paths"""
 @jit(nopython=True)
-def pmx_crossover_j( paths):
+def pmx_crossover_j(paths):
     # We will create 2 offspring for each 2 parents
     offspring = np.zeros((len(paths), numCities - 1)).astype(np.int16)
     # Take paths of even and odd indices together to create pairs of parents
@@ -262,6 +265,7 @@ def pmx_crossover_j( paths):
         offspring[2*i] = pmx_crossover_parents(p[0], p[1])
         offspring[2*i + 1] = pmx_crossover_parents(p[1], p[0])
     return offspring
+
 @jit(nopython=True)
 def pmx_crossover_parents( p1, p2):
     # Choose random crossover points & assign corresponding segments
@@ -283,6 +287,8 @@ def pmx_crossover_parents( p1, p2):
                     j = p1[pos_j_in_p2[0]]
     # Copy over the rest of p2 into the child
     child[child == 0] = p2[child == 0]
+    if not tourIsCorrect(child):
+        raise ValueError("Invalid tour during selection")
     return child
 
 @jit(nopython=True)
@@ -315,23 +321,14 @@ def pmx( parent1, parent2):
     child2[child2 == -1] = [i for i in parent1 if i not in child2]
 
     if not tourIsCorrect(child1):
-        print("start, end: ", start, end)
-        print("parent1: ", parent1)
-        print("parent2: ", parent2)
-        print("child1: ", child1)
         raise ValueError("Invalid tour during crossover")
-    
     if not tourIsCorrect(child2):
-        print("start, end: ", start, end)
-        print("parent1: ", parent1)
-        print("parent2: ", parent2)
-        print("child2: ", child2)
         raise ValueError("Invalid tour during crossover")
     return child1, child2
 
 # individual one:
 # @jit(nopython=True) no random.sample!
-def pmx_crossover( selected, k):
+def pmx_crossover(selected, k):
     offspring = np.zeros((lambdaa, numCities - 1)).astype(np.int16)
     parents = list(zip(selected[::2], selected[1::2]))      # why?
     for p in range(len(parents)):
@@ -355,6 +352,8 @@ def pmx_crossover( selected, k):
                         j = p1[ind_j2[0]]                   # useless?
         child[child == 0] = p2[child == 0]
         offspring[p] = child
+        if not tourIsCorrect(child):
+            raise ValueError("Invalid tour during crossover")
     return offspring
 
 @jit(nopython=True)
@@ -408,9 +407,6 @@ def scx( parent1, parent2):
         not_visited = np.setdiff1d(not_visited, [child[i]])
 
     if not tourIsCorrect(child):
-        print("parent1: ", parent1)
-        print("parent2: ", parent2)
-        print("child: ", child)
         raise ValueError("Invalid tour during crossover")
     return child
 
@@ -432,6 +428,8 @@ def mutate(offspring, mutationratios):
                                                   p=mutationratios)
             
             offspring[i, :] = mutation_operator(offspring[i, :])
+        if not tourIsCorrect(offspring[i, :]):
+            raise ValueError("Invalid tour during mutation")
     return offspring
 
 @jit(nopython=True)
@@ -569,6 +567,7 @@ def local_search_operator_2_opt(order: np.ndarray):
     new_order[best_first:best_second] = new_order[best_first:best_second][::-1]
     return new_order
 
+# no numba
 def elimination_withoutLocal( joinedPopulation: np.ndarray):
     # Apply the objective function to each row of the joinedPopulation array
     fvals = pop_fitness(joinedPopulation)
@@ -587,6 +586,7 @@ def elimination_withoutLocal( joinedPopulation: np.ndarray):
     survivors = np.vstack((best_survivors, random_survivors))
     return survivors
 
+# no numba
 def random_cycle(goal=0, frontier=None, expanded=None):
     path_len = distanceMatrix.shape[0]
     nodes = np.arange(path_len)
@@ -614,6 +614,7 @@ def random_cycle(goal=0, frontier=None, expanded=None):
     # in case it got to a dead end, rerun
     return random_cycle()
 
+# no numba
 def random_cycle_inverse( goal=0, frontier=None, expanded=None):
     path_len = distanceMatrix.shape[0]
     nodes = np.arange(path_len)
@@ -641,6 +642,7 @@ def random_cycle_inverse( goal=0, frontier=None, expanded=None):
     # in case it got to a dead end, return
     return random_cycle()
 
+# no numba
 def improve_subset_permutations( tour: np.ndarray, k: int):
     tour = tour.astype(np.int64)
 
@@ -669,6 +671,7 @@ def improve_subset_permutations( tour: np.ndarray, k: int):
         best_tour[ri:ri+k] = permutations[best, 1:-1]
     return best_tour
 
+# no numba
 def improve_subset_shuffle( tour: np.ndarray, k: int):
     tour = tour.astype(np.int64)
 
@@ -882,11 +885,25 @@ def plot_graph(mean, best):
     plt.legend()
     plt.show()
 
+def plot_hist(results_iterations):
+    plt.hist(results_iterations, bins=20, color='green')
+    plt.xlabel('Best Fitness')
+    plt.ylabel('Count of Iterations')
+    plt.title('Histogram of Best Fitness Values')
+    plt.show()
+
 # --------------------------------------------------------- #
 
 # Parameters
-
-
+alpha = 0.5                                      # Mutation probability
+mutationratios = [0.9, 0.1, 0, 0]                # inversion, swap, scramble, insert
+lambdaa = 100                                    # Population size
+mu = lambdaa * 2                                 # Offspring size       
+k = 3                                            # Tournament selection
+numIters = 2000                                  # Maximum number of iterations
+objf = fitness                                   # Objective function
+maxSameBestSol = 100  
+maxTime = 300                                    # Maximum 5 minutes
 
 f1="data/tour50.csv"
 f2="data/tour100.csv"
@@ -894,46 +911,28 @@ f3="data/tour200.csv"
 f4="data/tour500.csv"
 f5="data/tour750.csv"
 f6="data/tour1000.csv"
-files = [f6]
-    
+files = [f4]
 
-iterations = range(3)
+iterations = range(5)
 results_iterations = []
 if __name__ == "__main__":
-    for f in files:
-        alpha = 0.5                                      # Mutation probability
-        mutationratios = [0.9, 0.1, 0, 0]                # inversion, swap, scramble, insert
-        lambdaa = 100                                    # Population size
-        mu = lambdaa * 2                                 # Offspring size       
-        k = 3                                            # Tournament selection
-        numIters = 2000                                  # Maximum number of iterations
-        objf = fitness                                   # Objective function
-        maxSameBestSol = 100  
-        maxTime = 300                                    # Maximum 5 minutes
-        distanceMatrix = read_from_file(f)
-        numCities = distanceMatrix.shape[0]   
+    distanceMatrix = read_from_file(files[0])
+    numCities = distanceMatrix.shape[0] 
+    for i in iterations:
+        print(files[0], "\t Try: ", i)
+        start_time = time.time()
+        mean, best_fit, best_ind, numIt = r0978353().optimize()
+        end_time = time.time()
+        results_iterations.append((best_fit))
 
-        for i in iterations:
-            print(f, "\t Try: ", i)
-            start_time = time.time()
-            mean, best_fit, best_ind, numIt = r0978353().optimize()
-            end_time = time.time()
-            results_iterations.append((best_fit))
-    
-        # Print all the results
-        print("\n", str(f))
-        for i, result in enumerate(results_iterations):
-            print("Result ", i, ": ", result)
-        print("mean of the results: ", np.mean(results_iterations))
-        print("Best results found: ", np.min(results_iterations))
-        print("\n")
-
-        # # Plot histogram
-        # plt.hist(results_iterations, bins=20, color='blue', edgecolor='black')
-        # plt.xlabel('Best Fitness')
-        # plt.ylabel('Count of Iterations')
-        # plt.title('Histogram of Best Fitness Values')
-        # plt.show()
+    # Print all the results
+    print("\n", str(files[0]))
+    for i, result in enumerate(results_iterations):
+        print("Result ", i, ": ", result)
+    print("mean of the results: ", np.mean(results_iterations))
+    print("Best results found: ", np.min(results_iterations))
+    print("\n")
+    plot_hist(results_iterations)
 
 
 
