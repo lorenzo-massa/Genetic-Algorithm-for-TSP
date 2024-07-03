@@ -1,4 +1,4 @@
-import r0978639
+import main
 filename = "tour50.csv"
-a = r0978639 . r0978639 ()
+a = main . Solver ()
 a. optimize (filename)
